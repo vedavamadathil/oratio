@@ -6,7 +6,7 @@ using namespace std;
 using namespace nabu;
 
 // Sources
-StringFeeder sf = R"(
+StringFeeder sf = R"(--
 	myIdent =	anotherIdent
 )";
 
@@ -16,17 +16,25 @@ struct MyParser : public Parser <START> {
 	MyParser(Feeder *fd) : Parser <START> (fd) {}
 };
 
+static const char walrus[] = ":=";
+static const char minuses[] = "--";
+
 // Main function
 int main()
 {
-	MyParser parser(&sf);
+	// MyParser parser(&sf);
 	
 	ret *rptr;
-	/* rptr = parser.grammar <equals> ();
+	
+	rptr = rule <str <walrus>> ::value(&sf);
 	std::cout << "rptr = " << rptr << "\n";
-	std::cout << "rptr->value = \'" << get <char> (rptr) << "\'\n"; */
+	// std::cout << "rptr->value = \'" << get <std::string> (rptr) << "\'\n";
+	
+	rptr = rule <str <minuses>> ::value(&sf);
+	std::cout << "rptr = " << rptr << "\n";
+	std::cout << "rptr->value = \'" << get <std::string> (rptr) << "\'\n";
 
-	ReturnVector rvec = getrv(MyParser::seqrule <identifer, equals, identifer> ::value(&parser));
+	ReturnVector rvec = getrv(seqrule <identifer, equals, identifer> ::value(&sf));
 
 	// ReturnVector rvec = MyParser::kstar <alnum> ::value(&parser);
 	std::cout << "b = " << (bool) rvec << "\n";

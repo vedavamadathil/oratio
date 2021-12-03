@@ -2,23 +2,33 @@
 #define NABU_H_
 
 // Standard headers
+#include <stack>
 #include <string>
 #include <vector>
 
 namespace nabu {
 
-// Forward declarations
-template <class start>
-struct Parser;
+// Return type
+class ret {};
+
+// Constant returns
+#define NABU_SUCCESS (ret *) 0x1
+#define NABU_FAILURE nullptr
 
 // Feeder ABC
 class Feeder {
 protected:
-        bool _done = false;
+        bool 			_done = false;
+
+	// For pushing and popping characters
+	std::stack <int>	_indices;
+
+	virtual int _cindex() const = 0;
 public:
         virtual void move(int = 1) = 0;
         virtual char getc() const = 0;
 
+	// Retrieves the next character
         char next() {
                 if (_done)
                         return EOF;
@@ -30,6 +40,46 @@ public:
                 return c;
         }
 
+	// Notes current index into stack
+	void checkpoint() {
+		_indices.push(_cindex());
+	}
+
+	// Restores state from checkpoint
+	void respawn() {
+		int c = _cindex();
+		int p = _indices.top();
+		_indices.pop();
+
+		// Move by the delta amount
+		move(p - c);
+	}
+
+	// Read n characters
+	std::string read(int n) {
+		std::string out;
+
+		int k = n;
+
+		char c;
+		while (k-- > 0) {
+			c = next();
+
+			if (c == EOF)	
+				return out;
+			
+			out += c;
+		}
+
+		return out;
+	}
+	
+	// Moves backward
+	void backup(int i = 1) {
+		move(-i);
+	}
+
+	// Skips white space
 	void skip_space() {
 		while (isspace(next()));
 
@@ -37,12 +87,29 @@ public:
 		if (getc() != EOF)
 			move(-1);
 	}
+
+	// Moves back and returns failure
+	ret *abort(int i = 1) {
+		// Move back and return
+		move(-i);
+		return NABU_FAILURE;
+	}
+
+	// Moves back one character if c is not EOF
+	ret *noef(char c) {
+		backup(c != EOF);
+		return NABU_FAILURE;
+	}
 };
 
 // String feeder
 class StringFeeder : public Feeder {
         std::string	_source;
         int		_index;
+
+	virtual int _cindex() const override {
+		return _index;
+	}
 public:
         StringFeeder(const char *str) : StringFeeder(std::string(str)) {}
         StringFeeder(const std::string &str) : _source(str), _index(0) {}
@@ -61,13 +128,6 @@ public:
                 return _source[_index];
         }
 };
-
-// Return type
-class ret {};
-
-// Constant returns
-#define NABU_SUCCESS (ret *) 0x1
-#define NABU_FAILURE nullptr
 
 // Templates return type
 template <class T>
@@ -158,23 +218,131 @@ using Seqret = std::vector <ret *>;	// Should alias allocator's vector class
 
 // Rule structures:
 // TODO: docs -> always backup the tokens/characters if unsuccessful
-template <class start, class T>
+template <class T>
 struct rule {
-	static ret *value(Parser <start> *) {
+	static ret *value(Feeder *) {
 		return nullptr;
+	}
+};
+
+// Multirule (simultaneous) template
+template <class ... T>
+struct multirule {
+	static ret *value(Feeder *) {
+		return nullptr;
+	}
+};
+
+// NOTE: Multirule returns the first valid return
+template <class T, class ... U>
+struct multirule <T, U...> {
+	static ret *value(Feeder *fd) {
+		ret *rptr = rule <T> ::value(fd);
+		if (rptr)
+			return rptr;
+
+		return multirule <U...> ::value(fd);
+	}
+};
+
+// Sequential rule
+template <class ... T>
+struct seqrule {
+	// TODO: refactor to process
+	static bool _value(Feeder *fd, std::vector <ret *> &rets, bool skip) {
+		rets.clear();
+		return false;
+	}
+	
+	static ret *value(Feeder *fd, bool skip = true) {
+		return new ReturnVector();
+	}
+};
+
+// Base case
+template <class T>
+struct seqrule <T> {
+	static bool _value(Feeder *fd, std::vector <ret *> &sret, bool skip) {
+		if (skip)
+			fd->skip_space();
+
+		ret *rptr = rule <T> ::value(fd);
+		if (rptr) {
+			sret.push_back(rptr);
+			return true;
+		}
+
+		return false;
+	}
+	
+	static ret *value(Feeder *fd, bool skip = true) {
+		std::vector <ret *> sret;
+		_value(fd, sret, skip);
+		return new ReturnVector(sret);
+	}
+};
+
+template <class T, class ... U>
+struct seqrule <T, U...> {
+	static bool _value(Feeder *fd, std::vector <ret *> &sret, bool skip) {
+		if (skip)
+			fd->skip_space();
+		
+		ret *rptr = rule <T> ::value(fd);
+		if (!rptr) {
+			// Clear on failure
+			sret.clear();
+			return false;	// Failure on first token
+		}
+
+		if (seqrule <U...> ::_value(fd, sret, skip)) {
+			sret.insert(sret.begin(), rptr);
+			return true;
+		}
+
+		// Clear on failure
+		sret.clear();
+		return false;
+	}
+	
+	static ret *value(Feeder *fd, bool skip = true) {
+		std::vector <ret *> sret;
+		_value(fd, sret, skip);
+		return new ReturnVector(sret);
+	}
+};
+
+// Kleene star rule
+template <class T>
+struct kstar {
+	static ReturnVector value(Feeder *fd) {
+		std::vector <ret *> rets;
+		ret *rptr;
+		while ((rptr = rule <T> ::value(fd)))
+			rets.push_back(rptr);
+		return ReturnVector(rets);
+	}
+};
+
+// Kleene plus rule
+template <class T>
+struct kplus {
+	static ReturnVector value(Feeder *fd) {
+		std::vector <ret *> rets;
+		ret *rptr;
+		while ((rptr = rule <T> ::value(fd)))
+			rets.push_back(rptr);
+		return ReturnVector(rets);
 	}
 };
 
 // Parser classes
 struct START {};
 
-// Parser class
+// Parser class: essentially just a statement for the rules and grammars
 template <class start>
 struct Parser {
 	Feeder *feeder;
-
-	// Aliases
-	using rvec = ReturnVector;
 
 	// Feeder getter methods
 	char next() const {
@@ -201,121 +369,10 @@ struct Parser {
 		return NABU_FAILURE;
 	}
 
-	// Multirule (simultaneous) template
-	template <class ... T>
-	struct multirule {
-		static ret *value(Parser *) {
-			return nullptr;
-		}
-	};
-
-	// NOTE: Multirule returns the first valid return
-	template <class T, class ... U>
-	struct multirule <T, U...> {
-		static ret *value(Parser *parser) {
-			ret *rptr = rule <start, T> ::value(parser);
-			if (rptr)
-				return rptr;
-
-			return multirule <U...> ::value(parser);
-		}
-	};
-
-	// Sequential rule
-	template <class ... T>
-	struct seqrule {
-		// TODO: refactor to process
-		static bool _value(Parser *parser, std::vector <ret *> &rets, bool skip) {
-			rets.clear();
-			return false;
-		}
-		
-		static ret *value(Parser *parser, bool skip = true) {
-			return new rvec();
-		}
-	};
-	
-	// Base case
-	template <class T>
-	struct seqrule <T> {
-		static bool _value(Parser *parser, std::vector <ret *> &sret, bool skip) {
-			if (skip)
-				parser->skip_space();
-
-			ret *rptr = rule <start, T> ::value(parser);
-			if (rptr) {
-				sret.push_back(rptr);
-				return true;
-			}
-
-			return false;
-		}
-		
-		static ret *value(Parser *parser, bool skip = true) {
-			std::vector <ret *> sret;
-			_value(parser, sret, skip);
-			return new rvec(sret);
-		}
-	};
-
-	template <class T, class ... U>
-	struct seqrule <T, U...> {
-		static bool _value(Parser *parser, std::vector <ret *> &sret, bool skip) {
-			if (skip)
-				parser->skip_space();
-			
-			ret *rptr = rule <start, T> ::value(parser);
-			if (!rptr) {
-				// Clear on failure
-				sret.clear();
-				return false;	// Failure on first token
-			}
-
-			if (seqrule <U...> ::_value(parser, sret, skip)) {
-				sret.insert(sret.begin(), rptr);
-				return true;
-			}
-
-			// Clear on failure
-			sret.clear();
-			return false;
-		}
-		
-		static ret *value(Parser *parser, bool skip = true) {
-			std::vector <ret *> sret;
-			_value(parser, sret, skip);
-			return new rvec(sret);
-		}
-	};
-
-	// Kleene star rule
-	template <class T>
-	struct kstar {
-		static rvec value(Parser *parser) {
-			std::vector <ret *> rets;
-			ret *rptr;
-			while ((rptr = rule <start, T> ::value(parser)))
-				rets.push_back(rptr);
-			return rvec(rets);
-		}
-	};
-
-	// Kleene plus rule
-	template <class T>
-	struct kplus {
-		static rvec value(Parser *parser) {
-			std::vector <ret *> rets;
-			ret *rptr;
-			while ((rptr = rule <start, T> ::value(parser)))
-				rets.push_back(rptr);
-			return rvec(rets);
-		}
-	};
-
 	// Grammars
 	template <class T>
 	ret *grammar() {
-		return rule <start, T> ::value(this);
+		return rule <T> ::value(this);
 	}
 
 	// Constructors
@@ -339,6 +396,9 @@ struct Parser {
 template <char c>
 struct lit {};
 
+template <const char *s>
+struct str {};
+
 struct identifer {};
 
 // Literal groups
@@ -356,32 +416,51 @@ struct equals {};
 ////////////////////////////////////
 
 // Character
-template <class start, char c>
-struct rule <start, lit <c>> {
-	static ret *value(Parser <start> *pr) {
-		char n = pr->next();
+template <char c>
+struct rule <lit <c>> {
+	static ret *value(Feeder *fd) {
+		char n = fd->next();
 		if (n == c)
 			return new Tret <char> (n);
 		
-		return pr->abort();
+		return fd->abort();
+	}
+};
+
+// String
+template <const char *s>
+struct rule <str <s>> {
+	static ret *value(Feeder *fd) {
+		std::string str = s;
+
+		// Record current index for popping
+		fd->checkpoint();
+
+		std::string get = fd->read(str.size());
+		if (str == get)
+			return new Tret <std::string> (str);
+		
+		// Restore index and fail
+		fd->respawn();
+		return NABU_FAILURE;
 	}
 };
 
 // Identifier
-template <class start>
-struct rule <start, identifer> {
-	static ret *value(Parser <start> *pr) {
-		char n = pr->next();
+template <>
+struct rule <identifer> {
+	static ret *value(Feeder *fd) {
+		char n = fd->next();
 		if (n == '_' || isalpha(n)) {
 			std::string str;
 
 			str += n;
 			while (true) {
-				n = pr->next();
+				n = fd->next();
 				if (n == '_' || isalpha(n) || isdigit(n)) {
 					str += n;
 				} else {
-					pr->backup();
+					fd->backup();
 					break;
 				}
 			}
@@ -389,69 +468,66 @@ struct rule <start, identifer> {
 			return new Tret <std::string> (str);
 		}
 
-		return pr->abort();
+		return fd->abort();
 	}
 };
 
 // Digit
-template <class start>
-struct rule <start, digit> {
-	static ret *value(Parser <start> *parser) {
-		char n = parser->feeder->next();
+template <>
+struct rule <digit> {
+	static ret *value(Feeder *fd) {
+		char n = fd->next();
 		if (isdigit(n))
 			return new Tret <int> (n - '0');
 		
-		return parser->noef(n);
+		return fd->noef(n);
 	}
 };
 
 // Alpha
-template <class start>
-struct rule <start, alpha> {
-	static ret *value(Parser <start> *parser) {
-		char n = parser->feeder->next();
+template <>
+struct rule <alpha> {
+	static ret *value(Feeder *fd) {
+		char n = fd->next();
 		if (isalpha(n))
 			return new Tret <int> (n);
 		
-		return parser->noef(n);
+		return fd->noef(n);
 	}
 };
 
 // Concatenated literal groups
-template <class start>
-struct rule <start, alnum> : public Parser <start> ::template multirule <digit, alpha> {};
+template <>
+struct rule <alnum> : public multirule <digit, alpha> {};
 
 // Macro for generating rules for special characters
 #define special_lit(name, c)						\
-	template <class start>						\
-	struct rule <start, name> : public rule <start, lit <c>> {};
+	template <> struct rule <name> : public rule <lit <c>> {};
 
 special_lit(dot, '.');
 special_lit(comma, ',');
 special_lit(equals, '=');
 
 // Reading numbers
-template <class start>
-unsigned long long int atoi(Parser <start> *pr)
+unsigned long long int atoi(Feeder *fd)
 {
 	// Return value
 	unsigned long long int x = 0;
 
-	char c = pr->next();
+	char c = fd->next();
 	while (isdigit(c)) {
 		// Compute new value
 		x = 10 * x + (c - '0');
 
 		// Get the next character
-		c = pr->next();
+		c = fd->next();
 	}
 
-	pr->backup();
+	fd->backup();
 	return x;
 }
 
-template <class start>
-long double atof(Parser <start> *pr)
+long double atof(Feeder *fd)
 {
 	// Temporary storage
 	long double a = 0.0;
@@ -459,12 +535,12 @@ long double atof(Parser <start> *pr)
 	int c;
 
 	// Before decimal point
-	while ((c = pr->next()) != '\0' && isdigit(c))
+	while ((c = fd->next()) != '\0' && isdigit(c))
 		a = a * 10.0 + (c - '0');
 
 	// Decimal point
 	if (c == '.') {
-		while ((c = pr->next()) != '\0' && isdigit(c)) {
+		while ((c = fd->next()) != '\0' && isdigit(c)) {
 			a = a * 10.0 + (c - '0');
 			e = e - 1;
 		}
@@ -478,17 +554,17 @@ long double atof(Parser <start> *pr)
 		int i = 0;
 
 		// Signs of exponent
-		c = pr->next();
+		c = fd->next();
 		if (c == '+') {
-			c = pr->next();
+			c = fd->next();
 		} else if (c == '-') {
-			c = pr->next();
+			c = fd->next();
 			sign = -1;
 		}
 
 		while (isdigit(c)) {
 			i = i * 10 + (c - '0');
-			c = pr->next();
+			c = fd->next();
 		}
 
 		// Apply the sign
@@ -496,7 +572,7 @@ long double atof(Parser <start> *pr)
 	}
 
 	// TODO: move back?
-	pr->backup();
+	fd->backup();
 
 	// Deal with the exponent
 	while (e > 0) {
@@ -514,31 +590,31 @@ long double atof(Parser <start> *pr)
 }
 
 // Macro for creating templated type rules
-#define template_type_rule(aux, type)				\
-	template <class start>					\
-	struct rule <start, type> {				\
-		static ret *value(Parser <start> *parser) {	\
-			return aux <start, type> (parser);	\
-		}						\
+#define template_type_rule(aux, type)			\
+	template <>					\
+	struct rule <type> {				\
+		static ret *value(Feeder *fd) {		\
+			return aux <type> (fd);	\
+		}					\
 	};
 
 // Integer classes:
 //	Will not return negative numbers
 //	for the sake of simplicty. Negative
 //	numbers can be added as a grammar.
-template <class start, class I>
-ret *integral_rule(Parser <start> *parser)
+template <class I>
+ret *integral_rule(Feeder *fd)
 {
 	// Read first character
-	char n = parser->next();
+	char n = fd->next();
 
 	// Early failure
 	if (!isdigit(n))
-		return parser->abort();
+		return fd->abort();
 
 	// Backup
-	parser->backup();
-	return new Tret <I> (atoi(parser));
+	fd->backup();
+	return new Tret <I> (atoi(fd));
 }
 
 template_type_rule(integral_rule, short int);
@@ -550,23 +626,23 @@ template_type_rule(integral_rule, long long int);
 // TODO: similar code for floating point
 // TODO: create a templated helper function for integers and floating points
 //	should also detect overflow
-template <class start, class F>
-static ret *float_rule(Parser <start> *parser) {
+template <class F>
+static ret *float_rule(Feeder *fd) {
 	// Read first character
-	char n = parser->next();
+	char n = fd->next();
 	
 	// Early failures
 	if (!isdigit(n) && n != '.')
-		return parser->abort();
+		return fd->abort();
 
-	if (n == '.' && !isdigit(parser->next()))
-		return parser->abort(2);
+	if (n == '.' && !isdigit(fd->next()))
+		return fd->abort(2);
 
 	// Backup
-	parser->backup();
+	fd->backup();
 
 	// Get the value and return
-	return new Tret <F> (atof(parser));
+	return new Tret <F> (atof(fd));
 }
 
 template_type_rule(float_rule, float);
