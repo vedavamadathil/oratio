@@ -6,7 +6,7 @@ using namespace std;
 using namespace nabu;
 
 // Sources
-StringFeeder sf = R"(154.54k)";
+StringFeeder sf = R"(154.42390)";
 
 // Parsers
 struct DIGIT {};
@@ -26,8 +26,4 @@ int main()
 	rptr = parser.grammar <double> ();
 	std::cout << "rptr = " << rptr << "\n";
 	std::cout << "Read number " << get <double> (rptr) << std::endl;
-	
-	rptr = parser.grammar <lit <'k'>> ();
-	std::cout << "rptr = " << rptr << "\n";
-	std::cout << "Read number " << get <char> (rptr) << std::endl;
 }

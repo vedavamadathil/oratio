@@ -319,50 +319,65 @@ long double atof(Parser <start> *pr)
 	return a;
 }
 
+// Macro for creating templated type rules
+#define template_type_rule(aux, type)				\
+	template <class start>					\
+	struct rule <start, type> {				\
+		static ret *value(Parser <start> *parser) {	\
+			return aux <start, type> (parser);	\
+		}						\
+	};
 
-// Integer classes
-template <class start>
-struct rule <start, int> {
-	static ret *value(Parser <start> *parser) {
-		// Read first character
-		char n = parser->next();
+// Integer classes:
+//	Will not return negative numbers
+//	for the sake of simplicty. Negative
+//	numbers can be added as a grammar.
+template <class start, class I>
+ret *integral_rule(Parser <start> *parser)
+{
+	// Read first character
+	char n = parser->next();
 
-		// Early failure
-		if (!isdigit(n))
-			return parser->abort();
+	// Early failure
+	if (!isdigit(n))
+		return parser->abort();
 
-		// TODO: account for sign
+	// Backup
+	parser->backup();
+	return new Tret <I> (atoi(parser));
+}
 
-		// Backup
-		parser->backup();
-		return new Tret <int> (atoi(parser));
-	}
-};
+template_type_rule(integral_rule, short int);
+template_type_rule(integral_rule, int);
+template_type_rule(integral_rule, long int);
+template_type_rule(integral_rule, long long int);
 
 // TODO: int8_t, int16_t, int32_t, int64_t and unsigned counter parts
 // TODO: similar code for floating point
 // TODO: create a templated helper function for integers and floating points
 //	should also detect overflow
-template <class start>
-struct rule <start, double> {
-	static ret *value(Parser <start> *parser) {
-		// Read first character
-		char n = parser->next();
-		
-		// Early failures
-		if (!isdigit(n) && n != '.')
-			return parser->abort();
+template <class start, class F>
+static ret *float_rule(Parser <start> *parser) {
+	// Read first character
+	char n = parser->next();
+	
+	// Early failures
+	if (!isdigit(n) && n != '.')
+		return parser->abort();
 
-		if (n == '.' && !isdigit(parser->next()))
-			return parser->abort(2);
+	if (n == '.' && !isdigit(parser->next()))
+		return parser->abort(2);
 
-		// Backup
-		parser->backup();
+	// Backup
+	parser->backup();
 
-		// Get the value and return
-		return new Tret <double> (atof(parser));
-	}
-};
+	// Get the value and return
+	return new Tret <F> (atof(parser));
+}
+
+template_type_rule(float_rule, float);
+template_type_rule(float_rule, double);
+template_type_rule(float_rule, long double);
 
 }
 
