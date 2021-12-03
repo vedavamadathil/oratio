@@ -29,6 +29,14 @@ public:
 
                 return c;
         }
+
+	void skip_space() {
+		while (isspace(next()));
+
+		// Move back
+		if (getc() != EOF)
+			move(-1);
+	}
 };
 
 // String feeder
@@ -89,6 +97,9 @@ class NabuFactory : public Allocator {
 // TODO: template from allocator
 class ReturnVector : public ret {
 	std::vector <ret *> _rets;
+
+	using iterator = typename std::vector <ret *>::iterator;
+	using citerator = typename std::vector <ret *>::const_iterator;
 public:
 	// Constructors
 	ReturnVector() {}
@@ -99,6 +110,32 @@ public:
 		return _rets.size();
 	}
 
+	// Indexing
+	ret *operator[](size_t index) {
+		return _rets[index];
+	}
+
+	const ret *operator[](size_t index) const {
+		return _rets[index];
+	}
+
+	// Iterators
+	iterator begin() {
+		return _rets.begin();
+	}
+
+	iterator end() {
+		return _rets.end();
+	}
+
+	citerator begin() const {
+		return _rets.begin();
+	}
+
+	citerator end() const {
+		return _rets.end();
+	}
+
 	// TODO: add pushback at some point
 
 	// As a boolean, returns non-empty
@@ -106,6 +143,12 @@ public:
 		return !_rets.empty();
 	}
 };
+
+// Cast to ReturnVector
+inline const ReturnVector &getrv(ret *rptr)
+{
+	return *((ReturnVector *) rptr);
+}
 
 // Return value server and manager
 struct Server {};
@@ -143,6 +186,10 @@ struct Parser {
 		feeder->move(-i);
 	}
 
+	void skip_space() const {
+		feeder->skip_space();
+	}
+
 	ret *abort(int i = 1) const {
 		// Move back and return
 		feeder->move(-i);
@@ -178,20 +225,23 @@ struct Parser {
 	template <class ... T>
 	struct seqrule {
 		// TODO: refactor to process
-		static bool _value(Parser *parser, std::vector <ret *> &rets) {
+		static bool _value(Parser *parser, std::vector <ret *> &rets, bool skip) {
 			rets.clear();
 			return false;
 		}
 		
-		static rvec value(Parser *parser) {
-			return rvec();
+		static ret *value(Parser *parser, bool skip = true) {
+			return new rvec();
 		}
 	};
 	
 	// Base case
 	template <class T>
 	struct seqrule <T> {
-		static bool _value(Parser *parser, std::vector <ret *> &sret) {
+		static bool _value(Parser *parser, std::vector <ret *> &sret, bool skip) {
+			if (skip)
+				parser->skip_space();
+
 			ret *rptr = rule <start, T> ::value(parser);
 			if (rptr) {
 				sret.push_back(rptr);
@@ -201,16 +251,19 @@ struct Parser {
 			return false;
 		}
 		
-		static rvec value(Parser *parser) {
+		static ret *value(Parser *parser, bool skip = true) {
 			std::vector <ret *> sret;
-			_value(parser, sret);
-			return rvec(sret);
+			_value(parser, sret, skip);
+			return new rvec(sret);
 		}
 	};
 
 	template <class T, class ... U>
 	struct seqrule <T, U...> {
-		static bool _value(Parser *parser, std::vector <ret *> &sret) {
+		static bool _value(Parser *parser, std::vector <ret *> &sret, bool skip) {
+			if (skip)
+				parser->skip_space();
+			
 			ret *rptr = rule <start, T> ::value(parser);
 			if (!rptr) {
 				// Clear on failure
@@ -218,7 +271,7 @@ struct Parser {
 				return false;	// Failure on first token
 			}
 
-			if (seqrule <U...> ::_value(parser, sret)) {
+			if (seqrule <U...> ::_value(parser, sret, skip)) {
 				sret.insert(sret.begin(), rptr);
 				return true;
 			}
@@ -228,10 +281,10 @@ struct Parser {
 			return false;
 		}
 		
-		static rvec value(Parser *parser) {
+		static ret *value(Parser *parser, bool skip = true) {
 			std::vector <ret *> sret;
-			_value(parser, sret);
-			return rvec(sret);
+			_value(parser, sret, skip);
+			return new rvec(sret);
 		}
 	};
 

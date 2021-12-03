@@ -6,7 +6,9 @@ using namespace std;
 using namespace nabu;
 
 // Sources
-StringFeeder sf = R"(myIdent=anotherIdent)";
+StringFeeder sf = R"(
+	myIdent =	anotherIdent
+)";
 
 // Parsers
 // TODO: how to set space ignore for rules? (set on by default) -> skips space at the beginning only
@@ -24,8 +26,18 @@ int main()
 	std::cout << "rptr = " << rptr << "\n";
 	std::cout << "rptr->value = \'" << get <char> (rptr) << "\'\n"; */
 
-	// ReturnVector rvec = MyParser::seqrule <identifer, equals, identifer> ::value(&parser);
-	ReturnVector rvec = MyParser::kstar <alnum> ::value(&parser);
+	ReturnVector rvec = getrv(MyParser::seqrule <identifer, equals, identifer> ::value(&parser));
+
+	// ReturnVector rvec = MyParser::kstar <alnum> ::value(&parser);
 	std::cout << "b = " << (bool) rvec << "\n";
 	std::cout << "sret.size = " << rvec.size() << "\n";
+
+	/* for (auto &sret : rvec) {
+		std::cout << "sret.str = \'" << get <std::string> (sret) << "\'\n";
+		std::cout << "\tsret.char = \'" << get <char> (sret) << "\'\n";
+	} */
+
+	std::cout << "elem 0 = " << get <std::string> (rvec[0]) << "\n";
+	std::cout << "elem 1 = " << get <char> (rvec[1]) << "\n";
+	std::cout << "elem 2 = " << get <std::string> (rvec[2]) << "\n";
 }
