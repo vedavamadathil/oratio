@@ -1,11 +1,11 @@
-#ifndef ORATIO_H_
-#define ORATIO_H_
+#ifndef NABU_H_
+#define NABU_H_
 
 // Standard headers
 #include <string>
 #include <vector>
 
-namespace oratio {
+namespace nabu {
 
 // Forward declarations
 template <class start>
