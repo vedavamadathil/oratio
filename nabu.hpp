@@ -9,7 +9,116 @@
 namespace nabu {
 
 // Return type
-class ret {};
+class ret {
+public:
+	virtual std::string str() const = 0;
+};
+
+// Templates return type
+template <class T>
+struct Tret : public ret {
+	T value;
+
+	// Constructors and such
+	Tret(const T &x) : value(x) {}
+
+	// Default to_string method
+	// TODO: will to_string induce rtti?
+	std::string str() const override {
+		return std::to_string(value);
+	}
+};
+
+template <>
+std::string Tret <std::string> ::str() const {
+	return "\"" + value + "\"";
+}
+
+template <>
+std::string Tret <char> ::str() const {
+	return std::string("\'") + value + "\'";
+}
+
+// Easy casting
+template <class T>
+constexpr T get(ret *rptr)
+{
+	// TODO: add a NABU_NO_RTTI macro
+	// to use dynamic cast here instead (for speed,
+	// may want to use this!)
+	return ((Tret <T> *) rptr)->value;
+}
+
+// Return vector class
+// TODO: template from allocator
+class ReturnVector : public ret {
+	std::vector <ret *> _rets;
+
+	using iterator = typename std::vector <ret *>::iterator;
+	using citerator = typename std::vector <ret *>::const_iterator;
+public:
+	// Constructors
+	ReturnVector() {}
+	ReturnVector(const std::vector <ret *> &rets) : _rets(rets) {}
+
+	// Getters
+	const size_t size() const {
+		return _rets.size();
+	}
+
+	// Indexing
+	ret *operator[](size_t index) {
+		return _rets[index];
+	}
+
+	const ret *operator[](size_t index) const {
+		return _rets[index];
+	}
+
+	// Iterators
+	iterator begin() {
+		return _rets.begin();
+	}
+
+	iterator end() {
+		return _rets.end();
+	}
+
+	citerator begin() const {
+		return _rets.begin();
+	}
+
+	citerator end() const {
+		return _rets.end();
+	}
+
+	// TODO: add pushback at some point
+
+	// As a boolean, returns non-empty
+	explicit operator bool() const {
+		return !_rets.empty();
+	}
+
+	// Printing
+	// friend std::ostream &operator<<(std::ostream &os, const ReturnVector)
+	std::string str() const override {
+		std::string str = "{";
+		for (size_t i = 0; i < _rets.size(); i++) {
+			str += _rets[i]->str();
+
+			if (i + 1 < _rets.size())
+				str += ", ";
+		}
+
+		return str + "}";
+	}
+};
+
+// Cast to ReturnVector
+inline ReturnVector getrv(ret *rptr)
+{
+	return *((ReturnVector *) rptr);
+}
 
 // Constant returns
 #define NABU_SUCCESS (ret *) 0x1
@@ -73,6 +182,19 @@ public:
 
 		return out;
 	}
+
+	// Read until a character is reached (delimiter is also read)
+	//	returns success boolean (whether the boolean was reached)
+	//	and the actual string
+	std::pair <bool, std::string> read_until(char c) {
+		std::string out;
+
+		char n;
+		while (((n = next()) != EOF) && (n != c))
+			out += n;
+		
+		return {n == c, out};
+	}
 	
 	// Moves backward
 	void backup(int i = 1) {
@@ -129,22 +251,6 @@ public:
         }
 };
 
-// Templates return type
-template <class T>
-struct Tret : public ret {
-	T value;
-
-	// Constructors and such
-	Tret(const T &x) : value(x) {}
-};
-
-// Easy casting
-template <class T>
-constexpr T get(ret *rptr)
-{
-	return ((Tret <T> *) rptr)->value;
-}
-
 // Allocator abstract-base-class
 class Allocator {
 };
@@ -152,63 +258,6 @@ class Allocator {
 // Default allocator
 class NabuFactory : public Allocator {
 };
-
-// Return vector class
-// TODO: template from allocator
-class ReturnVector : public ret {
-	std::vector <ret *> _rets;
-
-	using iterator = typename std::vector <ret *>::iterator;
-	using citerator = typename std::vector <ret *>::const_iterator;
-public:
-	// Constructors
-	ReturnVector() {}
-	ReturnVector(const std::vector <ret *> &rets) : _rets(rets) {}
-
-	// Getters
-	const size_t size() const {
-		return _rets.size();
-	}
-
-	// Indexing
-	ret *operator[](size_t index) {
-		return _rets[index];
-	}
-
-	const ret *operator[](size_t index) const {
-		return _rets[index];
-	}
-
-	// Iterators
-	iterator begin() {
-		return _rets.begin();
-	}
-
-	iterator end() {
-		return _rets.end();
-	}
-
-	citerator begin() const {
-		return _rets.begin();
-	}
-
-	citerator end() const {
-		return _rets.end();
-	}
-
-	// TODO: add pushback at some point
-
-	// As a boolean, returns non-empty
-	operator bool() const {
-		return !_rets.empty();
-	}
-};
-
-// Cast to ReturnVector
-inline const ReturnVector &getrv(ret *rptr)
-{
-	return *((ReturnVector *) rptr);
-}
 
 // Return value server and manager
 struct Server {};
@@ -249,7 +298,7 @@ struct multirule <T, U...> {
 template <class ... T>
 struct seqrule {
 	// TODO: refactor to process
-	static bool _value(Feeder *fd, std::vector <ret *> &rets, bool skip) {
+	static bool _process(Feeder *fd, std::vector <ret *> &rets, bool skip) {
 		rets.clear();
 		return false;
 	}
@@ -257,12 +306,16 @@ struct seqrule {
 	static ret *value(Feeder *fd, bool skip = true) {
 		return new ReturnVector();
 	}
+protected:
+	static ret *_value(Feeder *fd, bool skip = true) {
+		return value(fd, skip);
+	}
 };
 
 // Base case
 template <class T>
 struct seqrule <T> {
-	static bool _value(Feeder *fd, std::vector <ret *> &sret, bool skip) {
+	static bool _process(Feeder *fd, std::vector <ret *> &sret, bool skip) {
 		if (skip)
 			fd->skip_space();
 
@@ -277,14 +330,22 @@ struct seqrule <T> {
 	
 	static ret *value(Feeder *fd, bool skip = true) {
 		std::vector <ret *> sret;
-		_value(fd, sret, skip);
-		return new ReturnVector(sret);
+		if (_process(fd, sret, skip))
+			return new ReturnVector(sret);
+		return nullptr;
+	}
+protected:
+	// Protected method that is equal to value
+	// 	exists to conveniently call from derived
+	//	classes without instantiating seqrule
+	static ret *_value(Feeder *fd, bool skip = true) {
+		return value(fd, skip);
 	}
 };
 
 template <class T, class ... U>
 struct seqrule <T, U...> {
-	static bool _value(Feeder *fd, std::vector <ret *> &sret, bool skip) {
+	static bool _process(Feeder *fd, std::vector <ret *> &sret, bool skip) {
 		if (skip)
 			fd->skip_space();
 		
@@ -295,7 +356,7 @@ struct seqrule <T, U...> {
 			return false;	// Failure on first token
 		}
 
-		if (seqrule <U...> ::_value(fd, sret, skip)) {
+		if (seqrule <U...> ::_process(fd, sret, skip)) {
 			sret.insert(sret.begin(), rptr);
 			return true;
 		}
@@ -307,72 +368,51 @@ struct seqrule <T, U...> {
 	
 	static ret *value(Feeder *fd, bool skip = true) {
 		std::vector <ret *> sret;
-		_value(fd, sret, skip);
-		return new ReturnVector(sret);
+		if (_process(fd, sret, skip))
+			return new ReturnVector(sret);
+		return nullptr;
+	}
+protected:
+	static ret *_value(Feeder *fd, bool skip = true) {
+		return value(fd, skip);
 	}
 };
 
 // Kleene star rule
 template <class T>
 struct kstar {
-	static ReturnVector value(Feeder *fd) {
+	static ret *value(Feeder *fd) {
 		std::vector <ret *> rets;
 		ret *rptr;
-		while ((rptr = rule <T> ::value(fd)))
+		while ((rptr = rule <T> ::value(fd))) {
+			std::cout << "rptr = " << rptr << std::endl;
 			rets.push_back(rptr);
-		return ReturnVector(rets);
+		}
+		return new ReturnVector(rets);
 	}
 };
 
 // Kleene plus rule
 template <class T>
 struct kplus {
-	static ReturnVector value(Feeder *fd) {
+	static ret *value(Feeder *fd) {
 		std::vector <ret *> rets;
 		ret *rptr;
 		while ((rptr = rule <T> ::value(fd)))
 			rets.push_back(rptr);
-		return ReturnVector(rets);
+		return new ReturnVector(rets);
 	}
 };
-
-// Parser classes
-struct START {};
 
 // Parser class: essentially just a statement for the rules and grammars
 template <class start>
 struct Parser {
 	Feeder *feeder;
 
-	// Feeder getter methods
-	char next() const {
-		return feeder->next();
-	}
-
-	// Helper methods for rules
-	void backup(int i = 1) const {
-		feeder->move(-i);
-	}
-
-	void skip_space() const {
-		feeder->skip_space();
-	}
-
-	ret *abort(int i = 1) const {
-		// Move back and return
-		feeder->move(-i);
-		return NABU_FAILURE;
-	}
-
-	ret *noef(char c) const {
-		backup(c != EOF);
-		return NABU_FAILURE;
-	}
-
 	// Grammars
 	template <class T>
 	ret *grammar() {
-		return rule <T> ::value(this);
+		return rule <T> ::value(feeder);
 	}
 
 	// Constructors
@@ -396,10 +436,17 @@ struct Parser {
 template <char c>
 struct lit {};
 
+template <char c>
+struct space_lit {};
+
+// Extracts string up to delimiter
+template <char c>
+struct delim_str {};
+
 template <const char *s>
 struct str {};
 
-struct identifer {};
+struct identifier {};
 
 // Literal groups
 struct digit {};
@@ -427,6 +474,33 @@ struct rule <lit <c>> {
 	}
 };
 
+// Space ignoring character
+template <char c>
+struct rule <space_lit <c>> {
+	static ret *value(Feeder *fd) {
+		// Skip space first
+		fd->skip_space();
+
+		char n = fd->next();
+		if (n == c)
+			return new Tret <char> (n);
+		
+		return fd->abort();
+	}
+};
+
+// String delimiter extractor
+template <char c>
+struct rule <delim_str <c>> {
+	static ret *value(Feeder *fd) {
+		// Skip space first
+		auto out = fd->read_until(c);
+		if (out.first)
+			return new Tret <std::string> (out.second);
+		return nullptr;
+	}
+};
+
 // String
 template <const char *s>
 struct rule <str <s>> {
@@ -448,7 +522,7 @@ struct rule <str <s>> {
 
 // Identifier
 template <>
-struct rule <identifer> {
+struct rule <identifier> {
 	static ret *value(Feeder *fd) {
 		char n = fd->next();
 		if (n == '_' || isalpha(n)) {
