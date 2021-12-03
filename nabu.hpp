@@ -238,23 +238,24 @@ struct Parser {
 	// Kleene star rule
 	template <class T>
 	struct kstar {
-		static void value(Parser *parser, Seqret &sret) {
+		static rvec value(Parser *parser) {
+			std::vector <ret *> rets;
 			ret *rptr;
 			while ((rptr = rule <start, T> ::value(parser)))
-				sret.push_back(rptr);
+				rets.push_back(rptr);
+			return rvec(rets);
 		}
 	};
 
 	// Kleene plus rule
 	template <class T>
 	struct kplus {
-		// TODO: a static value method which returns seqret?
-		// TODO: do above after implementing allocator and its vector
-		static bool value(Parser *parser, Seqret &sret) {
+		static rvec value(Parser *parser) {
+			std::vector <ret *> rets;
 			ret *rptr;
 			while ((rptr = rule <start, T> ::value(parser)))
-				sret.push_back(rptr);
-			return (sret.size() > 0);
+				rets.push_back(rptr);
+			return rvec(rets);
 		}
 	};
 

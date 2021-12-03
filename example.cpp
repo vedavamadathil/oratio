@@ -24,7 +24,8 @@ int main()
 	std::cout << "rptr = " << rptr << "\n";
 	std::cout << "rptr->value = \'" << get <char> (rptr) << "\'\n"; */
 
-	ReturnVector rvec = MyParser::seqrule <identifer, equals, identifer> ::value(&parser);
+	// ReturnVector rvec = MyParser::seqrule <identifer, equals, identifer> ::value(&parser);
+	ReturnVector rvec = MyParser::kstar <alnum> ::value(&parser);
 	std::cout << "b = " << (bool) rvec << "\n";
 	std::cout << "sret.size = " << rvec.size() << "\n";
 }
