@@ -6,19 +6,15 @@ using namespace std;
 using namespace oratio;
 
 // Sources
-StringFeeder sf = R"(01
-num := *digit
-)";
+StringFeeder sf = R"(154.54k)";
 
 // Parsers
 struct DIGIT {};
 
+// TODO: how to set space ignore for rules? (set on by default) -> skips space at the beginning only
 struct MyParser : public Parser <START> {
 	MyParser(Feeder *fd) : Parser <START> (fd) {}
 };
-
-template <>
-struct rule <MyParser::entry, DIGIT> : MyParser::multirule <lit <'1'>, lit <'0'>> {};
 
 // Main function
 int main()
@@ -26,14 +22,12 @@ int main()
 	MyParser parser(&sf);
 	
 	ret *rptr;
-	rptr = parser.grammar <lit <'\n'>> ();
-	std::cout << "rptr = " << rptr << std::endl;
 	
-	rptr = parser.grammar <DIGIT> ();
-	std::cout << "rptr = \'" << get <char> (rptr) << "\'" << std::endl;
+	rptr = parser.grammar <double> ();
+	std::cout << "rptr = " << rptr << "\n";
+	std::cout << "Read number " << get <double> (rptr) << std::endl;
 	
-	rptr = parser.grammar <DIGIT> ();
-	std::cout << "rptr = \'" << get <char> (rptr) << "\'" << std::endl;
-
-	// parser.grammar <START> ();
+	rptr = parser.grammar <lit <'k'>> ();
+	std::cout << "rptr = " << rptr << "\n";
+	std::cout << "Read number " << get <char> (rptr) << std::endl;
 }
