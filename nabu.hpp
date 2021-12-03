@@ -77,6 +77,36 @@ constexpr T get(ret *rptr)
 	return ((Tret <T> *) rptr)->value;
 }
 
+// Allocator abstract-base-class
+class Allocator {
+};
+
+// Default allocator
+class NabuFactory : public Allocator {
+};
+
+// Return vector class
+// TODO: template from allocator
+class ReturnVector : public ret {
+	std::vector <ret *> _rets;
+public:
+	// Constructors
+	ReturnVector() {}
+	ReturnVector(const std::vector <ret *> &rets) : _rets(rets) {}
+
+	// Getters
+	const size_t size() const {
+		return _rets.size();
+	}
+
+	// TODO: add pushback at some point
+
+	// As a boolean, returns non-empty
+	operator bool() const {
+		return !_rets.empty();
+	}
+};
+
 // Return value server and manager
 struct Server {};
 
@@ -99,6 +129,9 @@ struct START {};
 template <class start>
 struct Parser {
 	Feeder *feeder;
+
+	// Aliases
+	using rvec = ReturnVector;
 
 	// Feeder getter methods
 	char next() const {
@@ -145,15 +178,39 @@ struct Parser {
 	template <class ... T>
 	struct seqrule {
 		// TODO: refactor to process
-		static bool value(Parser *parser, Seqret &sret) {
-			sret.clear();
+		static bool _value(Parser *parser, std::vector <ret *> &rets) {
+			rets.clear();
 			return false;
+		}
+		
+		static rvec value(Parser *parser) {
+			return rvec();
+		}
+	};
+	
+	// Base case
+	template <class T>
+	struct seqrule <T> {
+		static bool _value(Parser *parser, std::vector <ret *> &sret) {
+			ret *rptr = rule <start, T> ::value(parser);
+			if (rptr) {
+				sret.push_back(rptr);
+				return true;
+			}
+
+			return false;
+		}
+		
+		static rvec value(Parser *parser) {
+			std::vector <ret *> sret;
+			_value(parser, sret);
+			return rvec(sret);
 		}
 	};
 
 	template <class T, class ... U>
 	struct seqrule <T, U...> {
-		static bool value(Parser *parser, Seqret &sret) {
+		static bool _value(Parser *parser, std::vector <ret *> &sret) {
 			ret *rptr = rule <start, T> ::value(parser);
 			if (!rptr) {
 				// Clear on failure
@@ -161,7 +218,7 @@ struct Parser {
 				return false;	// Failure on first token
 			}
 
-			if (seqrule <U...> ::value(parser, sret)) {
+			if (seqrule <U...> ::_value(parser, sret)) {
 				sret.insert(sret.begin(), rptr);
 				return true;
 			}
@@ -169,6 +226,12 @@ struct Parser {
 			// Clear on failure
 			sret.clear();
 			return false;
+		}
+		
+		static rvec value(Parser *parser) {
+			std::vector <ret *> sret;
+			_value(parser, sret);
+			return rvec(sret);
 		}
 	};
 
@@ -232,6 +295,7 @@ struct alnum {};
 // Special characters
 struct dot {};
 struct comma {};
+struct equals {};
 
 ////////////////////////////////////
 // Rule structure specializations //
@@ -303,9 +367,14 @@ struct rule <start, alpha> {
 template <class start>
 struct rule <start, alnum> : public Parser <start> ::template multirule <digit, alpha> {};
 
-// Rules for special characters
-template <class start>
-struct rule <start, dot> : public rule <start, lit <'.'>> {};
+// Macro for generating rules for special characters
+#define special_lit(name, c)						\
+	template <class start>						\
+	struct rule <start, name> : public rule <start, lit <c>> {};
+
+special_lit(dot, '.');
+special_lit(comma, ',');
+special_lit(equals, '=');
 
 // Reading numbers
 template <class start>
