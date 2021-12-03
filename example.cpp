@@ -6,11 +6,9 @@ using namespace std;
 using namespace nabu;
 
 // Sources
-StringFeeder sf = R"(154.42390)";
+StringFeeder sf = R"(myIdent)";
 
 // Parsers
-struct DIGIT {};
-
 // TODO: how to set space ignore for rules? (set on by default) -> skips space at the beginning only
 struct MyParser : public Parser <START> {
 	MyParser(Feeder *fd) : Parser <START> (fd) {}
@@ -22,8 +20,12 @@ int main()
 	MyParser parser(&sf);
 	
 	ret *rptr;
-	
-	rptr = parser.grammar <double> ();
+	/* rptr = parser.grammar <alnum> ();
 	std::cout << "rptr = " << rptr << "\n";
-	std::cout << "Read number " << get <double> (rptr) << std::endl;
+	std::cout << "rptr->value = " << get <char> (rptr) << "\n"; */
+
+	Seqret sret;
+	bool b = MyParser::kplus <alnum> ::value(&parser, sret);
+	std::cout << "b = " << b << "\n";
+	std::cout << "sret.size = " << sret.size() << "\n";
 }

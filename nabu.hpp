@@ -58,8 +58,8 @@ public:
 class ret {};
 
 // Constant returns
-#define ORA_SUCCESS (ret *) 0x1
-#define ORA_FAILURE nullptr
+#define NABU_SUCCESS (ret *) 0x1
+#define NABU_FAILURE nullptr
 
 // Templates return type
 template <class T>
@@ -81,7 +81,7 @@ constexpr T get(ret *rptr)
 struct Server {};
 
 // Sequential rule return value
-using Seqret = std::vector <ret *>;
+using Seqret = std::vector <ret *>;	// Should alias allocator's vector class
 
 // Rule structures:
 // TODO: docs -> always backup the tokens/characters if unsuccessful
@@ -113,7 +113,12 @@ struct Parser {
 	ret *abort(int i = 1) const {
 		// Move back and return
 		feeder->move(-i);
-		return ORA_FAILURE;
+		return NABU_FAILURE;
+	}
+
+	ret *noef(char c) const {
+		backup(c != EOF);
+		return NABU_FAILURE;
 	}
 
 	// Multirule (simultaneous) template
@@ -139,6 +144,7 @@ struct Parser {
 	// Sequential rule
 	template <class ... T>
 	struct seqrule {
+		// TODO: refactor to process
 		static bool value(Parser *parser, Seqret &sret) {
 			sret.clear();
 			return false;
@@ -163,6 +169,29 @@ struct Parser {
 			// Clear on failure
 			sret.clear();
 			return false;
+		}
+	};
+
+	// Kleene star rule
+	template <class T>
+	struct kstar {
+		static void value(Parser *parser, Seqret &sret) {
+			ret *rptr;
+			while ((rptr = rule <start, T> ::value(parser)))
+				sret.push_back(rptr);
+		}
+	};
+
+	// Kleene plus rule
+	template <class T>
+	struct kplus {
+		// TODO: a static value method which returns seqret?
+		// TODO: do above after implementing allocator and its vector
+		static bool value(Parser *parser, Seqret &sret) {
+			ret *rptr;
+			while ((rptr = rule <start, T> ::value(parser)))
+				sret.push_back(rptr);
+			return (sret.size() > 0);
 		}
 	};
 
@@ -193,14 +222,16 @@ struct Parser {
 template <char c>
 struct lit {};
 
+struct identifer {};
+
+// Literal groups
+struct digit {};
+struct alpha {};
+struct alnum {};
+
 // Special characters
 struct dot {};
 struct comma {};
-
-// Numeric
-// Integral and floating point types
-// are represented using int/double
-struct digit {};
 
 ////////////////////////////////////
 // Rule structure specializations //
@@ -218,9 +249,31 @@ struct rule <start, lit <c>> {
 	}
 };
 
-// Rules for special characters
+// Identifier
 template <class start>
-struct rule <start, dot> : public rule <start, lit <'.'>> {};
+struct rule <start, identifer> {
+	static ret *value(Parser <start> *pr) {
+		char n = pr->next();
+		if (n == '_' || isalpha(n)) {
+			std::string str;
+
+			str += n;
+			while (true) {
+				n = pr->next();
+				if (n == '_' || isalpha(n) || isdigit(n)) {
+					str += n;
+				} else {
+					pr->backup();
+					break;
+				}
+			}
+
+			return new Tret <std::string> (str);
+		}
+
+		return pr->abort();
+	}
+};
 
 // Digit
 template <class start>
@@ -230,11 +283,29 @@ struct rule <start, digit> {
 		if (isdigit(n))
 			return new Tret <int> (n - '0');
 		
-		// Back and return failure
-		parser->feeder->move(-1);
-		return ORA_FAILURE;
+		return parser->noef(n);
 	}
 };
+
+// Alpha
+template <class start>
+struct rule <start, alpha> {
+	static ret *value(Parser <start> *parser) {
+		char n = parser->feeder->next();
+		if (isalpha(n))
+			return new Tret <int> (n);
+		
+		return parser->noef(n);
+	}
+};
+
+// Concatenated literal groups
+template <class start>
+struct rule <start, alnum> : public Parser <start> ::template multirule <digit, alpha> {};
+
+// Rules for special characters
+template <class start>
+struct rule <start, dot> : public rule <start, lit <'.'>> {};
 
 // Reading numbers
 template <class start>
