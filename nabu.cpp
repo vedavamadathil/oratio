@@ -8,10 +8,8 @@ using namespace std;
 using namespace nabu;
 
 // Sources
-StringFeeder sf = R"(
-integer := digit {
-	std::string first = get <std::string> (_val);
-}
+StringFeeder sf = R"(ab cd ef
+gh ij
 )";
 
 // Literals constants and rules
@@ -19,6 +17,7 @@ static const char walrus[] = ":=";
 
 using lbrace = space_lit <'{'>;
 using rbrace = space_lit <'}'>;
+using option = space_lit <'|'>;
 
 // Grammar structures
 struct defined {};
@@ -26,6 +25,8 @@ struct custom_enclosure {};
 
 struct basic_assignment {};
 struct custom_assignment {};
+
+struct option_assignment {};
 
 struct nabu_start {};
 
@@ -94,7 +95,7 @@ std::string format(const std::string &source, Args ... strs)
 
 // Static source templates
 constexpr const char *basic_assignment_source = R"(
-template <> struct rule <%s> : public rule <%s> {};
+template <> struct rule <@1> : public rule <@2> {};
 )";
 
 constexpr const char *custom_assignment_source = R"(
@@ -190,5 +191,7 @@ ret *NabuParser::grammar <custom_assignment> ()
 int main()
 {
 	NabuParser nbpr(&sf);
-	nbpr.grammar <custom_assignment> ();
+
+	// nbpr.grammar <custom_assignment> ();
+	std::cout << "rule: "  << (kstar <skipper_no_nl <identifier>> ::value(&sf))->str() << std::endl;
 }

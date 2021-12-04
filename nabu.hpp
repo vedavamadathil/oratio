@@ -210,6 +210,20 @@ public:
 			move(-1);
 	}
 
+	// Skip white space without newline
+	void skip_space_no_nl() {
+		char c = getc();
+		if (!isspace(c) || c == '\n')
+			return;
+		
+		while (isspace(c) && c != '\n')
+			c = next();
+
+		// Move back
+		if (getc() != EOF)
+			move(-1);
+	}
+
 	// Moves back and returns failure
 	ret *abort(int i = 1) {
 		// Move back and return
@@ -384,10 +398,8 @@ struct kstar {
 	static ret *value(Feeder *fd) {
 		std::vector <ret *> rets;
 		ret *rptr;
-		while ((rptr = rule <T> ::value(fd))) {
-			std::cout << "rptr = " << rptr << std::endl;
+		while ((rptr = rule <T> ::value(fd)))
 			rets.push_back(rptr);
-		}
 		return new ReturnVector(rets);
 	}
 };
@@ -400,7 +412,10 @@ struct kplus {
 		ret *rptr;
 		while ((rptr = rule <T> ::value(fd)))
 			rets.push_back(rptr);
-		return new ReturnVector(rets);
+		
+		if (rets.size() > 0)
+			return new ReturnVector(rets);
+		return nullptr;
 	}
 };
 
@@ -432,6 +447,13 @@ struct Parser {
 	using entry = start;
 };
 
+// Generic space skipper wrapper
+template <class T>
+struct skipper;
+
+template <class T>
+struct skipper_no_nl;
+
 // Literal parser classes
 template <char c>
 struct lit {};
@@ -461,6 +483,24 @@ struct equals {};
 ////////////////////////////////////
 // Rule structure specializations //
 ////////////////////////////////////
+
+// Whitespace skippter
+template <class T>
+struct rule <skipper <T>> {
+	static ret *value(Feeder *fd) {
+		fd->skip_space();
+		return rule <T> ::value(fd);
+	}
+};
+
+// Space without newline rule
+template <class T>
+struct rule <skipper_no_nl <T>> {
+	static ret *value(Feeder *fd) {
+		fd->skip_space_no_nl();
+		return rule <T> ::value(fd);
+	}
+};
 
 // Character
 template <char c>
