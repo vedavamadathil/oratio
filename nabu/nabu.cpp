@@ -1,6 +1,7 @@
+#include <cassert>
 #include <iostream>
-#include <sstream>
 #include <set>
+#include <sstream>
 
 #include "nabu.hpp"
 
@@ -8,21 +9,26 @@ using namespace std;
 using namespace nabu;
 
 // Sources
-StringFeeder sf = R"(ab cd ef
-gh ij
+StringFeeder sf = R"(
+ruleA := Identifier12 _equals* '+' _9integer9+ "my literal" 
+ruleB := ruleA semicolon ruleA
+
+ruleA := Identifier12 _equals* '+' _9integer9+ "my literal" {
+	body...
+}
+
+ruleB := ruleA semicolon ruleA
 )";
 
 // Literals constants and rules
 static const char walrus[] = ":=";
 
 using lbrace = space_lit <'{'>;
-using rbrace = space_lit <'}'>;
 using option = space_lit <'|'>;
 
 // Grammar structures
-struct defined {};
-struct custom_enclosure {};
 
+// TODO: remove
 struct basic_assignment {};
 struct custom_assignment {};
 
@@ -31,8 +37,14 @@ struct option_assignment {};
 struct nabu_start {};
 
 // New rules
-template <> struct rule <defined> : public rule <str <walrus>> {};
-template <> struct rule <custom_enclosure> : public seqrule <lbrace, delim_str <'}'>> {
+struct defined {};
+
+template <> struct nabu::rule <defined> : public rule <str <walrus>> {};
+
+// TODO: macro for these cycles?
+struct custom_enclosure {};
+
+template <> struct nabu::rule <custom_enclosure> : public seqrule <lbrace, delim_str <'}'>> {
 	static ret *value(Feeder *fd) {
 		ret *rptr = _value(fd);
 		if (rptr)
@@ -41,8 +53,43 @@ template <> struct rule <custom_enclosure> : public seqrule <lbrace, delim_str <
 	}
 };
 
-template <> struct rule <basic_assignment> : public seqrule <identifier, defined, identifier> {};
-template <> struct rule <custom_assignment> : public seqrule <identifier, defined, identifier, custom_enclosure> {};
+struct term_star {};
+struct term_plus {};
+
+template <> struct nabu::rule <term_star> : public seqrule <skipper_no_nl <identifier>, lit <'*'>> {};
+template <> struct nabu::rule <term_plus> : public seqrule <skipper_no_nl <identifier>, lit <'+'>> {};
+
+struct term {};
+
+template <> struct nabu::rule <term> : public multirule <
+		term_star,
+		term_plus,
+		skipper_no_nl <identifier>,
+		skipper_no_nl <cchar>,
+		skipper_no_nl <cstr>
+	> {};
+
+
+struct term_expr {};
+
+template <> struct nabu::rule <term_expr> : public kplus <term> {};
+
+struct basic_statement {};
+struct custom_statement {};
+
+template <> struct nabu::rule <basic_statement> : public seqrule <identifier, defined, term_expr> {};
+template <> struct nabu::rule <custom_statement> : public seqrule <identifier, defined, term_expr, custom_enclosure> {};
+
+struct statement {};
+
+template <> struct nabu::rule <statement> : public multirule <
+		custom_statement,
+		basic_statement
+	> {};
+
+struct statement_list {};
+
+template <> struct nabu::rule <statement_list> : public kstar <skipper <statement>> {};
 
 // String formatting
 std::string format(const std::string &source, const std::vector <std::string> &args)
@@ -191,7 +238,5 @@ ret *NabuParser::grammar <custom_assignment> ()
 int main()
 {
 	NabuParser nbpr(&sf);
-
-	// nbpr.grammar <custom_assignment> ();
-	std::cout << "rule: "  << (kstar <skipper_no_nl <identifier>> ::value(&sf))->str() << std::endl;
+	std::cout << "rule: " << rule <statement_list> ::value(&sf)->str() << std::endl;
 }

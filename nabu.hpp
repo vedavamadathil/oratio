@@ -132,10 +132,11 @@ protected:
 	// For pushing and popping characters
 	std::stack <int>	_indices;
 
-	virtual int _cindex() const = 0;
 public:
         virtual void move(int = 1) = 0;
         virtual char getc() const = 0;
+	virtual int cindex() const = 0;
+	virtual size_t size() const = 0;
 
 	// Retrieves the next character
         char next() {
@@ -151,17 +152,26 @@ public:
 
 	// Notes current index into stack
 	void checkpoint() {
-		_indices.push(_cindex());
+		_indices.push(cindex());
 	}
 
 	// Restores state from checkpoint
 	void respawn() {
-		int c = _cindex();
+		int c = cindex();
 		int p = _indices.top();
 		_indices.pop();
 
 		// Move by the delta amount
 		move(p - c);
+	}
+
+	// Erases last checkpoint
+	bool erase_cp() {
+		if (_indices.empty())
+			return false;
+
+		_indices.pop();
+		return true;
 	}
 
 	// Read n characters
@@ -242,10 +252,6 @@ public:
 class StringFeeder : public Feeder {
         std::string	_source;
         int		_index;
-
-	virtual int _cindex() const override {
-		return _index;
-	}
 public:
         StringFeeder(const char *str) : StringFeeder(std::string(str)) {}
         StringFeeder(const std::string &str) : _source(str), _index(0) {}
@@ -263,6 +269,14 @@ public:
         char getc() const override {
                 return _source[_index];
         }
+
+	virtual int cindex() const override {
+		return _index;
+	}
+
+	virtual size_t size() const override {
+		return _source.size();
+	}
 };
 
 // Allocator abstract-base-class
@@ -360,6 +374,7 @@ protected:
 template <class T, class ... U>
 struct seqrule <T, U...> {
 	static bool _process(Feeder *fd, std::vector <ret *> &sret, bool skip) {
+		fd->checkpoint();			// Need to respawn on failure
 		if (skip)
 			fd->skip_space();
 		
@@ -367,16 +382,19 @@ struct seqrule <T, U...> {
 		if (!rptr) {
 			// Clear on failure
 			sret.clear();
+			fd->respawn();			// Respawn on failure
 			return false;	// Failure on first token
 		}
 
 		if (seqrule <U...> ::_process(fd, sret, skip)) {
 			sret.insert(sret.begin(), rptr);
+			fd->erase_cp();			// Erase checkpoint
 			return true;
 		}
 
 		// Clear on failure
 		sret.clear();
+		fd->respawn();				// Respawn on failure
 		return false;
 	}
 	
@@ -458,6 +476,7 @@ struct skipper_no_nl;
 template <char c>
 struct lit {};
 
+
 template <char c>
 struct space_lit {};
 
@@ -467,6 +486,12 @@ struct delim_str {};
 
 template <const char *s>
 struct str {};
+
+// Character in C
+struct cchar {};
+
+// String in C
+struct cstr {};
 
 struct identifier {};
 
@@ -551,12 +576,82 @@ struct rule <str <s>> {
 		fd->checkpoint();
 
 		std::string get = fd->read(str.size());
-		if (str == get)
+		if (str == get) {
+			fd->erase_cp();
 			return new Tret <std::string> (str);
+		}
 		
 		// Restore index and fail
 		fd->respawn();
 		return NABU_FAILURE;
+	}
+};
+
+// C character
+template <>
+struct rule <cchar> {
+	static ret *value(Feeder *fd) {
+		char n = fd->next();
+		if (n != '\'')
+			return fd->abort();
+		
+		char c = fd->next();
+		if (c == '\\') {
+			char n = fd->next();
+			if (n == '\'')
+				return new Tret <char> (c);
+			
+			// TODO: throw error
+			return fd->abort();
+		}
+
+		n = fd->next();
+		if (n != '\'')
+			return fd->abort();
+		
+		return new Tret <char> (c);
+	}
+};
+
+// C string
+template <>
+struct rule <cstr> {
+	static ret *value(Feeder *fd) {
+		char n = fd->next();
+		if (n != '\"')
+			return fd->abort();
+
+		std::string str;
+
+		// Read until closing quote
+		while (true) {
+			n = fd->next();
+			if (n == '\\') {
+				n = fd->next();
+
+				switch (n) {
+				case '\"':	str += '\"';	break;
+				case '\'':	str += '\'';	break;
+				case '\\':	str += '\\';	break;
+				case 'a':	str += '\a';	break;
+				case 'b':	str += '\b';	break;
+				case 'f':	str += '\f';	break;
+				case 'n':	str += '\n';	break;
+				case 'r':	str += '\r';	break;
+				case 't':	str += '\t';	break;
+				case 'v':	str += '\v';	break;
+				case '0':	str += '\0';	break;
+				default:
+					return fd->abort();	// TODO: throw error
+				}
+			} else if (n == '\"') {
+				break;
+			} else {
+				str.push_back(n);
+			}
+		}
+
+		return new Tret <std::string> (str);
 	}
 };
 
