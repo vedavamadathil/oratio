@@ -11,11 +11,36 @@
 // Local headers
 #include "common.hpp"
 
-// Literals constants and rules
-extern const char walrus[];
-
 // Set of rule tags
 extern std::set <std::string> tags;
+
+// Adding to this set
+inline void add_tag(const std::string &tag)
+{
+	if (!tag.empty())
+		tags.insert(tag);
+}
+
+// Set the first rule
+extern std::string first_tag;
+
+void set_first(const std::string &tag)
+{
+	if (first_tag.empty())
+		first_tag = tag;
+}
+
+// Sources
+extern std::vector <std::string> code;
+
+// Adding sources
+inline void add_source(const std::string &source)
+{
+	code.push_back(source);
+}
+
+// Literals constants and rules
+extern const char walrus_str[];
 
 using lbrace = nabu::space_lit <'{'>;
 using option = nabu::space_lit <'|'>;
@@ -26,7 +51,7 @@ using option = nabu::space_lit <'|'>;
 
 struct defined {};
 
-template <> struct nabu::rule <defined> : public rule <str <walrus>> {};
+template <> struct nabu::rule <defined> : public rule <str <walrus_str>> {};
 
 // TODO: macro for these cycles?
 struct custom_enclosure {};
@@ -112,8 +137,8 @@ template <> struct nabu::rule <term> : public multirule <
 			break;
 		}
 
-		/* if (!rule_tag.empty())
-			std::cout << "struct " << rule_tag << " {};" << std::endl; */
+		// Add rule to set
+		add_tag(rule_tag);
 
 		return new Tret <std::string> (rule_expr);
 	}
@@ -185,7 +210,7 @@ struct option_list {};
 
 template <> struct nabu::rule <option_list> : public kstar <skipper <option_expression>> {};
 
-template <> struct nabu::rule <statement> : public seqrule <identifier, defined, expression, option_list> {
+template <> class nabu::rule <statement> : public seqrule <identifier, defined, expression, option_list> {
 	static std::string mk_rule(std::string rule_tag, mt_ret mr) {
 		std::string rule_expr;
 		if (mr.first == 0) {
@@ -213,10 +238,13 @@ template <> struct nabu::rule <statement> : public seqrule <identifier, defined,
 		for (size_t i = 0; i < sub_rules.size(); i++) {
 			std::string optn = rule_tag + "_optn_" + std::to_string(i);
 			std::string rule_expr = mk_rule(optn, sub_rules[i]);
-			std::cout << rule_expr << std::endl;
+
+			// Add rule to set
+			add_source(rule_expr);
+			add_tag(optn);
 		}
 	}
-
+public:
 	static ret *value(Feeder *fd) {
 		ret *rptr = _value(fd);
 		if (!rptr)
@@ -258,17 +286,133 @@ template <> struct nabu::rule <statement> : public seqrule <identifier, defined,
 			rule_expr = mk_rule(rule_tag, mr);
 		}
 
-		// Print it
-		std::cout << rule_expr << std::endl;
-
-		// Return NABU_SUCCESS
-		// return new Tret <std::string> (rule_expr);
+		// Add rule to set
+		add_source(rule_expr);
+		add_tag(rule_tag);
+		set_first(rule_tag);
 		return rptr;
 	}
 };
 
+// Preprocessor directives
+extern const char entry_str[];
+extern const char noentry_str[];
+extern const char source_str[];
+extern const char rules_str[];
+extern const char project_str[];
+
+// Main rule and language name
+//	by default, the main rule
+//	is the first rule in the set
+extern std::string main_rule;
+extern std::string lang_name;
+extern bool no_main_rule;
+
+using hashtag = nabu::space_lit <'#'>;
+
+template <const char *str>
+struct pre_dir {};
+
+template <const char *s>
+struct nabu::rule <pre_dir <s>> : public seqrule <hashtag, str <s>> {};
+
+struct pre_entry {};
+struct pre_noentry {};
+struct pre_source {};
+struct pre_rules {};
+struct pre_project {};
+
+template <> struct nabu::rule <pre_entry> : public seqrule <
+		pre_dir <entry_str>,
+		identifier
+	> {
+
+	static ret *value(Feeder *fd) {
+		ret *rptr = _value(fd);
+		if (!rptr)
+			return nullptr;
+
+		ReturnVector rvec = getrv(rptr);
+		main_rule = get <std::string> (rvec[1]);
+		return new Tret <std::string> ("#entry " + main_rule);
+	}
+};
+
+template <> struct nabu::rule <pre_noentry> : public seqrule <pre_dir <noentry_str>> {
+	static ret *value(Feeder *fd) {
+		ret *rptr = _value(fd);
+		if (!rptr)
+			return nullptr;
+
+		no_main_rule = true;
+		return new Tret <std::string> ("#noentry");
+	}
+};
+
+template <> struct nabu::rule <pre_source> : public seqrule <
+		pre_dir <source_str>,
+		delim_str <'#', false>
+	> {
+
+	static ret *value(Feeder *fd) {
+		ret *rptr = _value(fd);
+		if (!rptr)
+			return nullptr;
+
+		// Add the source
+		ReturnVector rvec = getrv(rptr);
+		std::string source = get <std::string> (rvec[1]);
+		add_source(source);
+
+		return new Tret <std::string> ("#source");
+	}
+};
+
+template <> struct nabu::rule <pre_rules> : public seqrule <pre_dir <rules_str>> {
+	static ret *value(Feeder *fd) {
+		ret *rptr = _value(fd);
+		if (!rptr)
+			return nullptr;
+
+		return new Tret <std::string> ("#rules");
+	}
+};
+
+template <> struct nabu::rule <pre_project> : public seqrule <
+		pre_dir <project_str>,
+		identifier
+	> {
+
+	static ret *value(Feeder *fd) {
+		ret *rptr = _value(fd);
+		if (!rptr)
+			return nullptr;
+
+		ReturnVector rvec = getrv(rptr);
+		lang_name = get <std::string> (rvec[1]);
+		return new Tret <std::string> ("#project " + lang_name);
+	}	
+};
+
+struct preprocessor {};
+template <>
+struct nabu::rule <preprocessor> : public multirule <
+		pre_entry,
+		pre_noentry,
+		pre_source,
+		pre_rules,
+		pre_project
+		// TODO: add another generic preprocessor directive rule for error handling
+	> {};
+
+// Unit penultimate rule
+struct unit {};
+
+template <> struct nabu::rule <unit> : public multirule <statement, preprocessor> {};
+
+// Statement list (ultimate grammar)
 struct statement_list {};
 
-template <> struct nabu::rule <statement_list> : public kstar <skipper <statement>> {};
+template <> struct nabu::rule <statement_list> : public kstar <skipper <unit>> {};
 
 #endif

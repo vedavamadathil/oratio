@@ -76,6 +76,27 @@ struct rule <@1> : public @2 {
 };
 )";
 
+constexpr const char *main = R"(
+int main()
+{
+	// TODO: use kstar, and print the json
+	rule <@1> ::value(&sf);
+}
+)";
+
+// Headers and copyright
+constexpr const char *hrule_tag = R"(
+//////////////////////////
+// Rule tag definitions //
+//////////////////////////
+)";
+
+constexpr const char *hrule = R"(
+///////////////////////
+// Rules definitions //
+///////////////////////
+)";
+
 }
 
 #endif

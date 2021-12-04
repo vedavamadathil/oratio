@@ -540,7 +540,7 @@ template <char c>
 struct space_lit {};
 
 // Extracts string up to delimiter
-template <char c>
+template <char c, bool read = true>
 struct delim_str {};
 
 template <const char *s>
@@ -614,11 +614,16 @@ struct rule <space_lit <c>> {
 };
 
 // String delimiter extractor
-template <char c>
-struct rule <delim_str <c>> {
+template <char c, bool read>
+struct rule <delim_str <c, read>> {
 	static ret *value(Feeder *fd) {
 		// Skip space first
 		auto out = fd->read_until(c);
+
+		// Go before the delimiter
+		if (!read)
+			fd->backup();
+			
 		if (out.first)
 			return new Tret <std::string> (out.second);
 		return nullptr;
