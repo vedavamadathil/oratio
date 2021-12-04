@@ -100,7 +100,6 @@ public:
 	}
 
 	// Printing
-	// friend std::ostream &operator<<(std::ostream &os, const ReturnVector)
 	std::string str() const override {
 		std::string str = "{";
 		for (size_t i = 0; i < _rets.size(); i++) {
@@ -111,6 +110,53 @@ public:
 		}
 
 		return str + "}";
+	}
+	
+	std::string json_str() const {
+		std::string str = "[";
+		for (size_t i = 0; i < _rets.size(); i++) {
+			ret *rptr = _rets[i];
+
+			ReturnVector *rvptr = dynamic_cast <ReturnVector *> (rptr);
+			if (rvptr)
+				str += rvptr->json_str();
+			else
+				str += rptr->str();
+
+			if (i + 1 < _rets.size())
+				str += ", ";
+		}
+
+		return str + "]";
+	}
+
+	// Hierarchical printing
+	std::string json(int ilev = 1) {
+		std::string indent(ilev - 1, '\t');
+		std::string str = indent + "[\n";
+
+		for (size_t i = 0; i < _rets.size(); i++) {
+			ret *rptr = _rets[i];
+
+			// TODO: any alternative to dynamic_cast? or should it be at
+			// the user's discretion? (after all, this should be used
+			// for debugging or should be expected to be a slow process)
+			ReturnVector *rvptr = dynamic_cast <ReturnVector *> (rptr);
+			if (rvptr) {
+				std::string normal = rvptr->json_str();
+				if (normal.length() > 30)
+					str += rvptr->json(ilev + 1);
+				else
+					str += '\t' + indent + normal;
+			} else {
+				str += '\t' + indent + rptr->str();
+			}
+
+			if (i + 1 < _rets.size())
+				str += ",\n";
+		}
+
+		return str + '\n' + indent + "]";
 	}
 };
 
