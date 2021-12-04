@@ -3,6 +3,6 @@
 @entry number
 
 paren := '(' expression ')'
-number := k8 {// nothing here...}
+number := k8 {return _val;}
 	| digit*
-	| identifier digit+ {// also nothing here}
+	| identifier digit+

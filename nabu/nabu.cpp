@@ -63,6 +63,9 @@ int nabu_out(const std::string &file)
 		fout.open(file + ".cpp");
 	}
 
+	// Write copyright
+	fout << sources::copyright << std::endl;
+
 	// Include nabu
 	fout << "#include \"nabu.hpp\"\n\n";
 
