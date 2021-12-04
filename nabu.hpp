@@ -14,6 +14,13 @@ public:
 	virtual std::string str() const = 0;
 };
 
+// Custom to_string() function
+template <class T>
+std::string to_string(const T& t)
+{
+	return std::to_string(t);
+}
+
 // Templates return type
 template <class T>
 struct Tret : public ret {
@@ -336,9 +343,6 @@ class NabuFactory : public Allocator {
 // Return value server and manager
 struct Server {};
 
-// Sequential rule return value
-using Seqret = std::vector <ret *>;	// Should alias allocator's vector class
-
 // Rule structures:
 // TODO: docs -> always backup the tokens/characters if unsuccessful
 template <class T>
@@ -348,11 +352,33 @@ struct rule {
 	}
 };
 
+// Special (alternate) return type for multirules
+//	contains information about the index
+//	of the rule that succeeded
+using mt_ret = std::pair <int, ret *>;
+
+// Printing mt_rets
+template <>
+std::string Tret <mt_ret> ::str() const
+{
+	return "<" + std::to_string(value.first) + "," + value.second->str() + ">";
+}
+
 // Multirule (simultaneous) template
 template <class ... T>
 struct multirule {
 	static ret *value(Feeder *) {
 		return nullptr;
+	}
+	
+	static ret *_process(Feeder *, int &prev) {
+		prev = -1;
+		return nullptr;
+	}
+protected:
+	// This method will never return nullptr
+	static mt_ret _value(Feeder *fd) {
+		return {-1, nullptr};
 	}
 };
 
@@ -365,6 +391,21 @@ struct multirule <T, U...> {
 			return rptr;
 
 		return multirule <U...> ::value(fd);
+	}
+
+	static ret *_process(Feeder *fd, int &prev) {
+		ret *rptr = rule <T> ::value(fd);
+		if (rptr)
+			return rptr;
+
+		prev++;
+		return multirule <U...> ::_process(fd, prev);
+	}
+protected:
+	static mt_ret _value(Feeder *fd) {
+		int prev = 0;
+		ret *rptr = _process(fd, prev);
+		return {prev, rptr};	
 	}
 };
 
@@ -481,34 +522,6 @@ struct kplus {
 			return new ReturnVector(rets);
 		return nullptr;
 	}
-};
-
-// Parser class: essentially just a statement for the rules and grammars
-template <class start>
-struct Parser {
-	Feeder *feeder;
-
-	// Grammars
-	template <class T>
-	ret *grammar() {
-		return rule <T> ::value(feeder);
-	}
-
-	// Constructors
-	Parser(Feeder *fd) : feeder(fd) {}
-
-	// Parse
-	void parse() {
-		return grammar <start> ();
-	}
-
-	void parse(Feeder *fd) {
-		feeder = fd;
-		parse();
-	}
-
-	// Start token type
-	using entry = start;
 };
 
 // Generic space skipper wrapper
