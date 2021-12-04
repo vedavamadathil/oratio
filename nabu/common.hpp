@@ -61,12 +61,10 @@ std::string format(const std::string &source, Args ... strs)
 namespace sources {
 
 // Static source templates
-constexpr const char *basic_expression = R"(
-template <> struct rule <@1> : public rule <@2> {};
+constexpr const char *basic_expression = R"(template <> struct rule <@1> : public rule <@2> {};
 )";
 
-constexpr const char *custom_expression = R"(
-template <>
+constexpr const char *custom_expression = R"(template <>
 struct rule <@1> : public @2 {
 	static ret *value(Feeder *fd) {
 		// Predefined values
@@ -75,13 +73,9 @@ struct rule <@1> : public @2 {
 		// User source
 		@3
 	}
-}
+};
 )";
 
 }
-
-///////////////////////////////
-// Source generation methods //
-///////////////////////////////
 
 #endif
