@@ -1,0 +1,8 @@
+@project mylang
+
+@entry number
+
+paren := '(' expression ')'
+number := k8 {// nothing here...}
+	| digit*
+	| identifier digit+ {// also nothing here}

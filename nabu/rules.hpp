@@ -56,6 +56,7 @@ template <> struct nabu::rule <defined> : public rule <str <walrus_str>> {};
 // TODO: macro for these cycles?
 struct custom_enclosure {};
 
+// TODO: maybe check for returns?
 template <> struct nabu::rule <custom_enclosure> : public seqrule <lbrace, delim_str <'}'>> {
 	static ret *value(Feeder *fd) {
 		ret *rptr = _value(fd);
@@ -95,7 +96,7 @@ template <> struct nabu::rule <term_plus> : public seqrule <skipper_no_nl <ident
 struct term {};
 
 // Rule tag prefix
-const char *prefix = "nbg_";
+extern const char *prefix;
 
 template <> struct nabu::rule <term> : public multirule <
 		term_star,
@@ -274,7 +275,7 @@ public:
 			mk_optns(rule_tag, sub_rules);
 
 			// String the rule
-			rule_expr = "template <> struct rule <" + rule_tag + "> : public multirule <";
+			rule_expr = "template <> struct nabu::rule <" + rule_tag + "> : public multirule <";
 			for (size_t i = 0; i < sub_rules.size(); i++) {
 				rule_expr += rule_tag + "_optn_" + std::to_string(i);
 				if (i < sub_rules.size() - 1)
@@ -308,13 +309,13 @@ extern std::string main_rule;
 extern std::string lang_name;
 extern bool no_main_rule;
 
-using hashtag = nabu::space_lit <'#'>;
+using prechar = nabu::space_lit <'@'>;
 
 template <const char *str>
 struct pre_dir {};
 
 template <const char *s>
-struct nabu::rule <pre_dir <s>> : public seqrule <hashtag, str <s>> {};
+struct nabu::rule <pre_dir <s>> : public seqrule <prechar, str <s>> {};
 
 struct pre_entry {};
 struct pre_noentry {};
@@ -351,7 +352,7 @@ template <> struct nabu::rule <pre_noentry> : public seqrule <pre_dir <noentry_s
 
 template <> struct nabu::rule <pre_source> : public seqrule <
 		pre_dir <source_str>,
-		delim_str <'#', false>
+		delim_str <'@', false>
 	> {
 
 	static ret *value(Feeder *fd) {

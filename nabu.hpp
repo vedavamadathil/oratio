@@ -2,6 +2,7 @@
 #define NABU_H_
 
 // Standard headers
+#include <fstream>
 #include <stack>
 #include <string>
 #include <vector>
@@ -330,6 +331,24 @@ public:
 	virtual size_t size() const override {
 		return _source.size();
 	}
+
+	// From file
+	static StringFeeder from_file(const std::string &filename) {
+		std::ifstream file(filename);
+
+		// Read the file
+		std::string str;
+
+		file.seekg(0, std::ios::end);
+		str.reserve(file.tellg());
+		file.seekg(0, std::ios::beg);
+
+		str.assign((std::istreambuf_iterator <char> (file)),
+			   std::istreambuf_iterator <char> ());
+			
+		// Return the feeder
+		return StringFeeder(str);
+	}
 };
 
 // Allocator abstract-base-class
@@ -623,7 +642,7 @@ struct rule <delim_str <c, read>> {
 		// Go before the delimiter
 		if (!read)
 			fd->backup();
-			
+
 		if (out.first)
 			return new Tret <std::string> (out.second);
 		return nullptr;
