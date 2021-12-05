@@ -300,6 +300,7 @@ extern const char entry_str[];
 extern const char noentry_str[];
 extern const char source_str[];
 extern const char rules_str[];
+extern const char nojson_str[];
 extern const char project_str[];
 
 // Main rule and language name
@@ -308,6 +309,7 @@ extern const char project_str[];
 extern std::string main_rule;
 extern std::string lang_name;
 extern bool no_main_rule;
+extern bool no_json;
 
 using prechar = nabu::space_lit <'@'>;
 
@@ -321,6 +323,7 @@ struct pre_entry {};
 struct pre_noentry {};
 struct pre_source {};
 struct pre_rules {};
+struct pre_nojson {};
 struct pre_project {};
 
 template <> struct nabu::rule <pre_entry> : public seqrule <
@@ -335,7 +338,7 @@ template <> struct nabu::rule <pre_entry> : public seqrule <
 
 		ReturnVector rvec = getrv(rptr);
 		main_rule = get <std::string> (rvec[1]);
-		return new Tret <std::string> ("#entry " + main_rule);
+		return new Tret <std::string> ("@entry " + main_rule);
 	}
 };
 
@@ -346,7 +349,7 @@ template <> struct nabu::rule <pre_noentry> : public seqrule <pre_dir <noentry_s
 			return nullptr;
 
 		no_main_rule = true;
-		return new Tret <std::string> ("#noentry");
+		return new Tret <std::string> ("@noentry");
 	}
 };
 
@@ -365,7 +368,7 @@ template <> struct nabu::rule <pre_source> : public seqrule <
 		std::string source = get <std::string> (rvec[1]);
 		add_source(source);
 
-		return new Tret <std::string> ("#source");
+		return new Tret <std::string> ("@source");
 	}
 };
 
@@ -375,7 +378,18 @@ template <> struct nabu::rule <pre_rules> : public seqrule <pre_dir <rules_str>>
 		if (!rptr)
 			return nullptr;
 
-		return new Tret <std::string> ("#rules");
+		return new Tret <std::string> ("@rules");
+	}
+};
+
+template <> struct nabu::rule <pre_nojson> : public seqrule <pre_dir <nojson_str>> {
+	static ret *value(Feeder *fd) {
+		ret *rptr = _value(fd);
+		if (!rptr)
+			return nullptr;
+
+		no_json = true;
+		return new Tret <std::string> ("@nojson");
 	}
 };
 
@@ -391,7 +405,7 @@ template <> struct nabu::rule <pre_project> : public seqrule <
 
 		ReturnVector rvec = getrv(rptr);
 		lang_name = get <std::string> (rvec[1]);
-		return new Tret <std::string> ("#project " + lang_name);
+		return new Tret <std::string> ("@project " + lang_name);
 	}	
 };
 
@@ -402,6 +416,7 @@ struct nabu::rule <preprocessor> : public multirule <
 		pre_noentry,
 		pre_source,
 		pre_rules,
+		pre_nojson,
 		pre_project
 		// TODO: add another generic preprocessor directive rule for error handling
 	> {};

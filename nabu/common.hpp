@@ -95,6 +95,25 @@ int main(int argc, char *argv[])
 }
 )";
 
+
+constexpr const char *main_no_json = R"(
+#include <iostream>
+
+int main(int argc, char *argv[])
+{
+	if (argc < 2) {
+		fprintf(stderr, "Usage: %s <file>\n", argv[0]);
+		return 1;
+	}
+
+	// Open file
+	nabu::StringFeeder sf = nabu::StringFeeder::from_file(argv[1]);
+
+	// Parse the file
+	nabu::rule <@1> ::value(&sf);
+}
+)";
+
 // Headers and copyright
 constexpr const char *hrule_tag = R"(
 //////////////////////////

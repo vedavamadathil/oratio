@@ -1,6 +1,7 @@
 *.log
-*.out
-.vscode
-bin
 *.nabu.cpp
 *.nabu.hpp
+*.out
+.smake
+.vscode
+bin

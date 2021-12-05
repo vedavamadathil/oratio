@@ -16,6 +16,7 @@ string lang_name;		// TODO: what do we really this for?
 string first_tag;
 
 bool no_main_rule = false;
+bool no_json = false;
 
 // Struct prefixes
 const char *prefix = "nbg_";
@@ -26,6 +27,7 @@ const char entry_str[] = "entry";
 const char noentry_str[] = "noentry";
 const char source_str[] = "source";
 const char rules_str[] = "rules";
+const char nojson_str[] = "nojson";
 const char project_str[] = "project";
 
 // Sources
@@ -49,7 +51,7 @@ int nabu_out(const std::string &file)
 
 	// Read the source
 	ret *rptr = rule <statement_list> ::value(&sf);
-	// std::cout << getrv(rptr).json() << std::endl;
+	std::cout << getrv(rptr).json() << std::endl;
 	// TODO: add debugging mode
 
 	// Set main rule
@@ -81,8 +83,10 @@ int nabu_out(const std::string &file)
 	
 	// Main function
 	if (!main_rule.empty()) {
-		// TODO: need to code args as well
-		fout << format(sources::main, prefix + main_rule) << endl;
+		if (no_json)
+			fout << format(sources::main_no_json, prefix + main_rule) << endl;
+		else
+			fout << format(sources::main, prefix + main_rule) << endl;
 	}
 
 	return 0;

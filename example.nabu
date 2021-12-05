@@ -1,4 +1,5 @@
 @project mylang
+@nojson
 
 @entry number
 
