@@ -50,7 +50,7 @@ int nabu_out(const std::string &file)
 	ofstream fout;
 
 	// Read the source
-	ret *rptr = rule <statement_list> ::value(&sf);
+	ret rptr = rule <statement_list> ::value(&sf);
 	// std::cout << getrv(rptr).json() << std::endl;
 	// TODO: add debugging mode
 

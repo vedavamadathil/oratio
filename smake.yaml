@@ -14,7 +14,9 @@ targets:
       - default: nabu_release
       - gdb: nabu_debug
       - valgrind: nabu_debug
+      - leaks: nabu_debug
     - postbuilds:
       - default: '{} example.nabu'
       - gdb: 'gdb {}'
-      - valgrind: 'valgrind {}'
+      - valgrind: 'valgrind --leak-check=full --show-leak-kinds=all -- {} example.nabu'
+      - leaks: 'leaks -atExit -- {} example.nabu'

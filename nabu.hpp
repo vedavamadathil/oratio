@@ -3,6 +3,7 @@
 
 // Standard headers
 #include <fstream>
+#include <memory>
 #include <stack>
 #include <string>
 #include <vector>
@@ -10,10 +11,13 @@
 namespace nabu {
 
 // Return type
-class ret {
+class _ret {
 public:
 	virtual std::string str() const = 0;
 };
+
+// Smart pointer alias
+using ret = std::shared_ptr <_ret>;
 
 // Custom to_string() function
 template <class T>
@@ -24,7 +28,7 @@ std::string to_string(const T& t)
 
 // Templates return type
 template <class T>
-struct Tret : public ret {
+struct Tret : public _ret {
 	T value;
 
 	// Constructors and such
@@ -49,25 +53,25 @@ std::string Tret <char> ::str() const {
 
 // Easy casting
 template <class T>
-constexpr T get(ret *rptr)
+T get(ret rptr)
 {
 	// TODO: add a NABU_NO_RTTI macro
 	// to use dynamic cast here instead (for speed,
 	// may want to use this!)
-	return ((Tret <T> *) rptr)->value;
+	return ((Tret <T> *) rptr.get())->value;
 }
 
 // Return vector class
 // TODO: template from allocator
-class ReturnVector : public ret {
-	std::vector <ret *> _rets;
+class ReturnVector : public _ret {
+	std::vector <ret> _rets;
 
-	using iterator = typename std::vector <ret *>::iterator;
-	using citerator = typename std::vector <ret *>::const_iterator;
+	using iterator = typename std::vector <ret >::iterator;
+	using citerator = typename std::vector <ret >::const_iterator;
 public:
 	// Constructors
 	ReturnVector() {}
-	ReturnVector(const std::vector <ret *> &rets) : _rets(rets) {}
+	ReturnVector(const std::vector <ret > &rets) : _rets(rets) {}
 
 	// Getters
 	const size_t size() const {
@@ -75,11 +79,11 @@ public:
 	}
 
 	// Indexing
-	ret *operator[](size_t index) {
+	ret operator[](size_t index) {
 		return _rets[index];
 	}
 
-	const ret *operator[](size_t index) const {
+	const ret operator[](size_t index) const {
 		return _rets[index];
 	}
 
@@ -123,9 +127,9 @@ public:
 	std::string json_str() const {
 		std::string str = "[";
 		for (size_t i = 0; i < _rets.size(); i++) {
-			ret *rptr = _rets[i];
+			ret rptr = _rets[i];
 
-			ReturnVector *rvptr = dynamic_cast <ReturnVector *> (rptr);
+			ReturnVector *rvptr = dynamic_cast <ReturnVector *> (rptr.get());
 			if (rvptr)
 				str += rvptr->json_str();
 			else
@@ -144,12 +148,12 @@ public:
 		std::string str = indent + "[\n";
 
 		for (size_t i = 0; i < _rets.size(); i++) {
-			ret *rptr = _rets[i];
+			ret rptr = _rets[i];
 
 			// TODO: any alternative to dynamic_cast? or should it be at
 			// the user's discretion? (after all, this should be used
 			// for debugging or should be expected to be a slow process)
-			ReturnVector *rvptr = dynamic_cast <ReturnVector *> (rptr);
+			ReturnVector *rvptr = dynamic_cast <ReturnVector *> (rptr.get());
 			if (rvptr) {
 				std::string normal = rvptr->json_str();
 				if (normal.length() > 30)
@@ -169,13 +173,13 @@ public:
 };
 
 // Cast to ReturnVector
-inline ReturnVector getrv(ret *rptr)
+inline ReturnVector getrv(ret rptr)
 {
-	return *((ReturnVector *) rptr);
+	return *((ReturnVector *) rptr.get());
 }
 
 // Constant returns
-#define NABU_SUCCESS (ret *) 0x1
+#define NABU_SUCCESS (ret ) 0x1
 #define NABU_FAILURE nullptr
 
 // Feeder ABC
@@ -289,14 +293,14 @@ public:
 	}
 
 	// Moves back and returns failure
-	ret *abort(int i = 1) {
+	ret abort(int i = 1) {
 		// Move back and return
 		move(-i);
 		return NABU_FAILURE;
 	}
 
 	// Moves back one character if c is not EOF
-	ret *noef(char c) {
+	ret noef(char c) {
 		backup(c != EOF);
 		return NABU_FAILURE;
 	}
@@ -353,128 +357,11 @@ public:
 
 // TODO: class for reading argument (and then storing results into a map)
 
-// Sequential allocator class (psize is in KB)
-// Note that this class is purely static
-template <size_t psize = 1024>
-class Allocator {
-	// Follows purely sequential allocation
-	// and deallocation (like a stack)
-	struct Page {
-		uint8_t *memory;
-		uint8_t	*index;
-
-		// Sizes of allocated blocks
-		// uses a stack because its purely sequential
-		std::stack <size_t> sizes;
-
-		// Size left in the page
-		size_t space() const {
-			return (index - memory);
-		}
-
-		// General allocation
-		uint8_t *alloc(size_t bytes) {
-			// TODO: throw out of space
-			uint8_t *caddr = index;
-			index += bytes;
-			sizes.push(bytes);			
-			return caddr;
-		}
-
-		// General deallocation
-		void free(uint8_t *ptr) {
-			// TODO: Throw bad free
-			
-			// Get size of last block
-			size_t pbytes = sizes.top();
-
-			// Make sure index is the end of this block
-			if (ptr + pbytes != index)
-				throw bad_free_order();
-
-			// Decrement the index and pop the block size
-			index -= pbytes;
-			return sizes.pop();
-		}
-
-		// Check if page contains address
-		bool contains(uint8_t *ptr) const {
-			return (ptr >= memory)
-				&& (ptr <= memory + size());
-		}
-
-		// Throw if the pointer to be freed is not
-		// the immediate last one
-		class bad_free_order {};
-	};
-
-	static std::vector <Page> _pages;
-
-	static void _add_page() {
-		uint8_t *memory = new uint8_t[size()];
-		_pages.push_back({memory, memory});
-	}
-public:
-	// Page size in bytes
-	static constexpr size_t size() {
-		return (psize << 10);
-	}
-
-	// General allocation
-	static uint8_t *alloc(size_t bytes) {
-		// Check that bytes can fit into a page
-		if (bytes > size())
-			throw size_overflow();
-
-		// Allocate on first page that has the size
-		for (Page &page : _pages) {
-			if (page.space() >= bytes)
-				return page.alloc(bytes);
-		}
-
-		// If no available page, create a new page
-		_add_page();
-
-		// Allocate on last page
-		return _pages[_pages.size() - 1].alloc(bytes);
-	}
-
-	// General deallocation
-	static void free(uint8_t *ptr) {
-		// Find which page the pointer is
-		// from, and free from there
-		for (Page &page : _pages) {
-			if (page.contains(ptr))
-				page.free(ptr);
-		}
-	}
-
-	// Throw if the requested bytes exceeds page size
-	class size_overflow {};
-};
-
-// Return value server and manager
-template <size_t psize = 1024>
-class Server {
-	// Previous addresses
-	static std::vector <uint8_t *> _ptrs;
-public:
-	// Typed general allocation
-	template <class T>
-	static Tret <T> *alloc(const T &value) {
-		uint8_t *raw = Allocator <psize> ::alloc(sizeof(T));
-		Tret <T> *out = reinterpret_cast <Tret <T> *> (raw);
-		out->value = value;
-		_ptrs.push_back(raw);
-		return out;
-	}
-};
-
 // Rule structures:
 // TODO: docs -> always backup the tokens/characters if unsuccessful
 template <class T>
 struct rule {
-	static ret *value(Feeder *) {
+	static ret value(Feeder *) {
 		return nullptr;
 	}
 };
@@ -482,7 +369,7 @@ struct rule {
 // Special (alternate) return type for multirules
 //	contains information about the index
 //	of the rule that succeeded
-using mt_ret = std::pair <int, ret *>;
+using mt_ret = std::pair <int, ret >;
 
 // Printing mt_rets
 template <>
@@ -494,11 +381,11 @@ std::string Tret <mt_ret> ::str() const
 // Multirule (simultaneous) template
 template <class ... T>
 struct multirule {
-	static ret *value(Feeder *) {
+	static ret value(Feeder *) {
 		return nullptr;
 	}
 	
-	static ret *_process(Feeder *, int &prev) {
+	static ret _process(Feeder *, int &prev) {
 		prev = -1;
 		return nullptr;
 	}
@@ -512,16 +399,16 @@ protected:
 // NOTE: Multirule returns the first valid return
 template <class T, class ... U>
 struct multirule <T, U...> {
-	static ret *value(Feeder *fd) {
-		ret *rptr = rule <T> ::value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = rule <T> ::value(fd);
 		if (rptr)
 			return rptr;
 
 		return multirule <U...> ::value(fd);
 	}
 
-	static ret *_process(Feeder *fd, int &prev) {
-		ret *rptr = rule <T> ::value(fd);
+	static ret _process(Feeder *fd, int &prev) {
+		ret rptr = rule <T> ::value(fd);
 		if (rptr)
 			return rptr;
 
@@ -531,7 +418,7 @@ struct multirule <T, U...> {
 protected:
 	static mt_ret _value(Feeder *fd) {
 		int prev = 0;
-		ret *rptr = _process(fd, prev);
+		ret rptr = _process(fd, prev);
 		return {prev, rptr};	
 	}
 };
@@ -540,16 +427,16 @@ protected:
 template <class ... T>
 struct seqrule {
 	// TODO: refactor to process
-	static bool _process(Feeder *fd, std::vector <ret *> &rets, bool skip) {
+	static bool _process(Feeder *fd, std::vector <ret > &rets, bool skip) {
 		rets.clear();
 		return false;
 	}
 	
-	static ret *value(Feeder *fd, bool skip = true) {
-		return new ReturnVector();
+	static ret value(Feeder *fd, bool skip = true) {
+		return ret(new ReturnVector());
 	}
 protected:
-	static ret *_value(Feeder *fd, bool skip = true) {
+	static ret _value(Feeder *fd, bool skip = true) {
 		return value(fd, skip);
 	}
 };
@@ -557,11 +444,11 @@ protected:
 // Base case
 template <class T>
 struct seqrule <T> {
-	static bool _process(Feeder *fd, std::vector <ret *> &sret, bool skip) {
+	static bool _process(Feeder *fd, std::vector <ret > &sret, bool skip) {
 		if (skip)
 			fd->skip_space();
 
-		ret *rptr = rule <T> ::value(fd);
+		ret rptr = rule <T> ::value(fd);
 		if (rptr) {
 			sret.push_back(rptr);
 			return true;
@@ -570,29 +457,29 @@ struct seqrule <T> {
 		return false;
 	}
 	
-	static ret *value(Feeder *fd, bool skip = true) {
-		std::vector <ret *> sret;
+	static ret value(Feeder *fd, bool skip = true) {
+		std::vector <ret > sret;
 		if (_process(fd, sret, skip))
-			return new ReturnVector(sret);
+			return ret(new ReturnVector(sret));
 		return nullptr;
 	}
 protected:
 	// Protected method that is equal to value
 	// 	exists to conveniently call from derived
 	//	classes without instantiating seqrule
-	static ret *_value(Feeder *fd, bool skip = true) {
+	static ret _value(Feeder *fd, bool skip = true) {
 		return value(fd, skip);
 	}
 };
 
 template <class T, class ... U>
 struct seqrule <T, U...> {
-	static bool _process(Feeder *fd, std::vector <ret *> &sret, bool skip) {
+	static bool _process(Feeder *fd, std::vector <ret > &sret, bool skip) {
 		fd->checkpoint();			// Need to respawn on failure
 		if (skip)
 			fd->skip_space();
 		
-		ret *rptr = rule <T> ::value(fd);
+		ret rptr = rule <T> ::value(fd);
 		if (!rptr) {
 			// Clear on failure
 			sret.clear();
@@ -612,14 +499,14 @@ struct seqrule <T, U...> {
 		return false;
 	}
 	
-	static ret *value(Feeder *fd, bool skip = true) {
-		std::vector <ret *> sret;
+	static ret value(Feeder *fd, bool skip = true) {
+		std::vector <ret > sret;
 		if (_process(fd, sret, skip))
-			return new ReturnVector(sret);
+			return ret(new ReturnVector(sret));
 		return nullptr;
 	}
 protected:
-	static ret *_value(Feeder *fd, bool skip = true) {
+	static ret _value(Feeder *fd, bool skip = true) {
 		return value(fd, skip);
 	}
 };
@@ -627,26 +514,26 @@ protected:
 // Kleene star rule
 template <class T>
 struct kstar {
-	static ret *value(Feeder *fd) {
-		std::vector <ret *> rets;
-		ret *rptr;
+	static ret value(Feeder *fd) {
+		std::vector <ret > rets;
+		ret rptr;
 		while ((rptr = rule <T> ::value(fd)))
 			rets.push_back(rptr);
-		return new ReturnVector(rets);
+		return ret(new ReturnVector(rets));
 	}
 };
 
 // Kleene plus rule
 template <class T>
 struct kplus {
-	static ret *value(Feeder *fd) {
-		std::vector <ret *> rets;
-		ret *rptr;
+	static ret value(Feeder *fd) {
+		std::vector <ret > rets;
+		ret rptr;
 		while ((rptr = rule <T> ::value(fd)))
 			rets.push_back(rptr);
 		
 		if (rets.size() > 0)
-			return new ReturnVector(rets);
+			return ret(new ReturnVector(rets));
 		return nullptr;
 	}
 };
@@ -698,7 +585,7 @@ struct equals {};
 // Whitespace skippter
 template <class T>
 struct rule <skipper <T>> {
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		fd->skip_space();
 		return rule <T> ::value(fd);
 	}
@@ -707,7 +594,7 @@ struct rule <skipper <T>> {
 // Space without newline rule
 template <class T>
 struct rule <skipper_no_nl <T>> {
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		fd->skip_space_no_nl();
 		return rule <T> ::value(fd);
 	}
@@ -716,10 +603,10 @@ struct rule <skipper_no_nl <T>> {
 // Character
 template <char c>
 struct rule <lit <c>> {
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		char n = fd->next();
 		if (n == c)
-			return new Tret <char> (n);
+			return ret(new Tret <char> (n));
 		
 		return fd->abort();
 	}
@@ -728,13 +615,13 @@ struct rule <lit <c>> {
 // Space ignoring character
 template <char c>
 struct rule <space_lit <c>> {
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		// Skip space first
 		fd->skip_space();
 
 		char n = fd->next();
 		if (n == c)
-			return new Tret <char> (n);
+			return ret(new Tret <char> (n));
 		
 		return fd->abort();
 	}
@@ -743,7 +630,7 @@ struct rule <space_lit <c>> {
 // String delimiter extractor
 template <char c, bool read>
 struct rule <delim_str <c, read>> {
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		// Skip space first
 		auto out = fd->read_until(c);
 
@@ -752,7 +639,7 @@ struct rule <delim_str <c, read>> {
 			fd->backup();
 
 		if (out.first)
-			return new Tret <std::string> (out.second);
+			return ret(new Tret <std::string> (out.second));
 		return nullptr;
 	}
 };
@@ -760,7 +647,7 @@ struct rule <delim_str <c, read>> {
 // String
 template <const char *s>
 struct rule <str <s>> {
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		std::string str = s;
 
 		// Record current index for popping
@@ -769,7 +656,7 @@ struct rule <str <s>> {
 		std::string get = fd->read(str.size());
 		if (str == get) {
 			fd->erase_cp();
-			return new Tret <std::string> (str);
+			return ret(new Tret <std::string> (str));
 		}
 		
 		// Restore index and fail
@@ -781,7 +668,7 @@ struct rule <str <s>> {
 // C character
 template <>
 struct rule <cchar> {
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		char n = fd->next();
 		if (n != '\'')
 			return fd->abort();
@@ -790,7 +677,7 @@ struct rule <cchar> {
 		if (c == '\\') {
 			char n = fd->next();
 			if (n == '\'')
-				return new Tret <char> (c);
+				return ret(new Tret <char> (c));
 			
 			// TODO: throw error
 			return fd->abort();
@@ -800,14 +687,14 @@ struct rule <cchar> {
 		if (n != '\'')
 			return fd->abort();
 		
-		return new Tret <char> (c);
+		return ret(new Tret <char> (c));
 	}
 };
 
 // C string
 template <>
 struct rule <cstr> {
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		char n = fd->next();
 		if (n != '\"')
 			return fd->abort();
@@ -842,14 +729,14 @@ struct rule <cstr> {
 			}
 		}
 
-		return new Tret <std::string> (str);
+		return ret(new Tret <std::string> (str));
 	}
 };
 
 // Identifier
 template <>
 struct rule <identifier> {
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		char n = fd->next();
 		if (n == '_' || isalpha(n)) {
 			std::string str;
@@ -865,7 +752,7 @@ struct rule <identifier> {
 				}
 			}
 
-			return new Tret <std::string> (str);
+			return ret(new Tret <std::string> (str));
 		}
 
 		return fd->abort();
@@ -875,10 +762,10 @@ struct rule <identifier> {
 // Digit
 template <>
 struct rule <digit> {
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		char n = fd->next();
 		if (isdigit(n))
-			return new Tret <int> (n - '0');
+			return ret(new Tret <int> (n - '0'));
 		
 		return fd->noef(n);
 	}
@@ -887,10 +774,10 @@ struct rule <digit> {
 // Alpha
 template <>
 struct rule <alpha> {
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		char n = fd->next();
 		if (isalpha(n))
-			return new Tret <int> (n);
+			return ret(new Tret <int> (n));
 		
 		return fd->noef(n);
 	}
@@ -993,7 +880,7 @@ long double atof(Feeder *fd)
 #define template_type_rule(aux, type)			\
 	template <>					\
 	struct rule <type> {				\
-		static ret *value(Feeder *fd) {		\
+		static ret value(Feeder *fd) {		\
 			return aux <type> (fd);	\
 		}					\
 	};
@@ -1003,7 +890,7 @@ long double atof(Feeder *fd)
 //	for the sake of simplicty. Negative
 //	numbers can be added as a grammar.
 template <class I>
-ret *integral_rule(Feeder *fd)
+ret integral_rule(Feeder *fd)
 {
 	// Read first character
 	char n = fd->next();
@@ -1014,7 +901,7 @@ ret *integral_rule(Feeder *fd)
 
 	// Backup
 	fd->backup();
-	return new Tret <I> (atoi(fd));
+	return ret(new Tret <I> (atoi(fd)));
 }
 
 template_type_rule(integral_rule, short int);
@@ -1027,7 +914,7 @@ template_type_rule(integral_rule, long long int);
 // TODO: create a templated helper function for integers and floating points
 //	should also detect overflow
 template <class F>
-static ret *float_rule(Feeder *fd) {
+static ret float_rule(Feeder *fd) {
 	// Read first character
 	char n = fd->next();
 	
@@ -1042,7 +929,7 @@ static ret *float_rule(Feeder *fd) {
 	fd->backup();
 
 	// Get the value and return
-	return new Tret <F> (atof(fd));
+	return ret(new Tret <F> (atof(fd)));
 }
 
 template_type_rule(float_rule, float);

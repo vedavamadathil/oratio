@@ -58,8 +58,8 @@ struct custom_enclosure {};
 
 // TODO: maybe check for returns?
 template <> struct nabu::rule <custom_enclosure> : public seqrule <lbrace, delim_str <'}'>> {
-	static ret *value(Feeder *fd) {
-		ret *rptr = _value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
 		if (rptr)
 			return getrv(rptr)[1];
 		return nullptr;
@@ -70,8 +70,8 @@ struct term_star {};
 struct term_plus {};
 
 template <> struct nabu::rule <term_star> : public seqrule <skipper_no_nl <identifier>, lit <'*'>> {
-	static ret *value(Feeder *fd) {
-		ret *rptr = _value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
 		if (rptr) {
 			ReturnVector rvec = getrv(rptr);
 			return rvec[0];
@@ -82,8 +82,8 @@ template <> struct nabu::rule <term_star> : public seqrule <skipper_no_nl <ident
 };
 
 template <> struct nabu::rule <term_plus> : public seqrule <skipper_no_nl <identifier>, lit <'+'>> {
-	static ret *value(Feeder *fd) {
-		ret *rptr = _value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
 		if (rptr) {
 			ReturnVector rvec = getrv(rptr);
 			return rvec[0];
@@ -106,7 +106,7 @@ template <> struct nabu::rule <term> : public multirule <
 		skipper_no_nl <cstr>
 	> {
 	
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		mt_ret mr = _value(fd);
 		if (mr.first < 0)
 			return nullptr;
@@ -141,15 +141,15 @@ template <> struct nabu::rule <term> : public multirule <
 		// Add rule to set
 		add_tag(rule_tag);
 
-		return new Tret <std::string> (rule_expr);
+		return ret(new Tret <std::string> (rule_expr));
 	}
 };
 
 struct term_expr {};
 
 template <> struct nabu::rule <term_expr> : public kplus <term> {
-	static ret *value(Feeder *fd) {
-		ret *rptr = kplus <term> ::value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = kplus <term> ::value(fd);
 		if (!rptr)
 			return nullptr;
 		
@@ -166,7 +166,7 @@ template <> struct nabu::rule <term_expr> : public kplus <term> {
 
 		// Complete the rule and return it
 		combined += ">";
-		return new Tret <std::string> (combined);
+		return ret(new Tret <std::string> (combined));
 	}
 };
 
@@ -181,8 +181,8 @@ struct option_expression {};
 
 template <> struct nabu::rule <option_expression> : public seqrule <option, expression> {
 	// TODO: fast method to return first element
-	static ret *value(Feeder *fd) {
-		ret *rptr = _value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
 
@@ -198,11 +198,11 @@ template <> struct nabu::rule <expression> : public multirule <
 	
 	// Enable indexing of returns
 	// TODO: fast method for this?
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		mt_ret mr = _value(fd);
 		if (mr.first < 0)
 			return nullptr;
-		return new Tret <mt_ret> (mr);
+		return ret(new Tret <mt_ret> (mr));
 	}
 };
 
@@ -246,8 +246,8 @@ template <> class nabu::rule <statement> : public seqrule <identifier, defined, 
 		}
 	}
 public:
-	static ret *value(Feeder *fd) {
-		ret *rptr = _value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
 
@@ -331,25 +331,25 @@ template <> struct nabu::rule <pre_entry> : public seqrule <
 		identifier
 	> {
 
-	static ret *value(Feeder *fd) {
-		ret *rptr = _value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
 
 		ReturnVector rvec = getrv(rptr);
 		main_rule = get <std::string> (rvec[1]);
-		return new Tret <std::string> ("@entry " + main_rule);
+		return ret(new Tret <std::string> ("@entry " + main_rule));
 	}
 };
 
 template <> struct nabu::rule <pre_noentry> : public seqrule <pre_dir <noentry_str>> {
-	static ret *value(Feeder *fd) {
-		ret *rptr = _value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
 
 		no_main_rule = true;
-		return new Tret <std::string> ("@noentry");
+		return ret(new Tret <std::string> ("@noentry"));
 	}
 };
 
@@ -358,8 +358,8 @@ template <> struct nabu::rule <pre_source> : public seqrule <
 		delim_str <'@', false>
 	> {
 
-	static ret *value(Feeder *fd) {
-		ret *rptr = _value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
 
@@ -368,28 +368,28 @@ template <> struct nabu::rule <pre_source> : public seqrule <
 		std::string source = get <std::string> (rvec[1]);
 		add_source(source);
 
-		return new Tret <std::string> ("@source");
+		return ret(new Tret <std::string> ("@source"));
 	}
 };
 
 template <> struct nabu::rule <pre_rules> : public seqrule <pre_dir <rules_str>> {
-	static ret *value(Feeder *fd) {
-		ret *rptr = _value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
 
-		return new Tret <std::string> ("@rules");
+		return ret(new Tret <std::string> ("@rules"));
 	}
 };
 
 template <> struct nabu::rule <pre_nojson> : public seqrule <pre_dir <nojson_str>> {
-	static ret *value(Feeder *fd) {
-		ret *rptr = _value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
 
 		no_json = true;
-		return new Tret <std::string> ("@nojson");
+		return ret(new Tret <std::string> ("@nojson"));
 	}
 };
 
@@ -398,14 +398,14 @@ template <> struct nabu::rule <pre_project> : public seqrule <
 		identifier
 	> {
 
-	static ret *value(Feeder *fd) {
-		ret *rptr = _value(fd);
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
 
 		ReturnVector rvec = getrv(rptr);
 		lang_name = get <std::string> (rvec[1]);
-		return new Tret <std::string> ("@project " + lang_name);
+		return ret(new Tret <std::string> ("@project " + lang_name));
 	}	
 };
 
