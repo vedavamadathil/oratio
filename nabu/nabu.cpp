@@ -71,10 +71,18 @@ int nabu_out(const std::string &file)
 	// Include nabu
 	fout << "#include \"nabu.hpp\"\n\n";
 
+	// Begin namespace
+	if (!lang_name.empty())
+		fout << "namespace " << lang_name << " {\n";
+
 	// Output all rule tags
 	fout << sources::hrule_tag << std::endl;
 	for (auto &tag : tags)
-		fout << "struct " << tag << " {};" << endl;
+		fout << "struct " << tag << " {};\n";
+	
+	// End namespace
+	if (!lang_name.empty())	
+		fout << "\n}\n";
 
 	// Output all code
 	fout << sources::hrule << std::endl;
@@ -82,11 +90,12 @@ int nabu_out(const std::string &file)
 		fout << line << endl;
 	
 	// Main function
+	std::string main = lang_name + "::" + prefix + main_rule;
 	if (!main_rule.empty()) {
 		if (no_json)
-			fout << format(sources::main_no_json, prefix + main_rule) << endl;
+			fout << format(sources::main_no_json, main) << endl;
 		else
-			fout << format(sources::main, prefix + main_rule) << endl;
+			fout << format(sources::main, main) << endl;
 	}
 
 	return 0;

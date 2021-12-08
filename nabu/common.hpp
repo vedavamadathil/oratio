@@ -66,9 +66,9 @@ constexpr const char *basic_expression = R"(template <> struct nabu::rule <@1> :
 
 constexpr const char *custom_expression = R"(template <>
 struct nabu::rule <@1> : public @2 {
-	static ret *value(Feeder *fd) {
+	static ret value(Feeder *fd) {
 		// Predefined values
-		ret *_val = @2 ::value(fd);
+		ret _val = @2 ::value(fd);
 
 		// User source
 		@3

@@ -39,6 +39,14 @@ inline void add_source(const std::string &source)
 	code.push_back(source);
 }
 
+// Main rule and language name
+//	by default, the main rule
+//	is the first rule in the set
+extern std::string main_rule;
+extern std::string lang_name;
+extern bool no_main_rule;
+extern bool no_json;
+
 // Literals constants and rules
 extern const char walrus_str[];
 
@@ -117,15 +125,15 @@ template <> struct nabu::rule <term> : public multirule <
 		switch (mr.first) {
 		case 0:
 			rule_tag = prefix + get <std::string> (mr.second);
-			rule_expr = "kstar <" + rule_tag + ">";
+			rule_expr = "kstar <" + lang_name + "::" + rule_tag + ">";
 			break;
 		case 1:
 			rule_tag = prefix + get <std::string> (mr.second);
-			rule_expr = "kplus <" + rule_tag + ">";
+			rule_expr = "kplus <" + lang_name + "::" + rule_tag + ">";
 			break;
 		case 2:
 			rule_tag = prefix + get <std::string> (mr.second);
-			rule_expr = rule_tag;
+			rule_expr = lang_name + "::" + rule_tag;
 			break;
 		case 3:
 			rule_expr = std::string("lit <\'") + get <char> (mr.second) + "\'>";
@@ -219,7 +227,7 @@ template <> class nabu::rule <statement> : public seqrule <identifier, defined, 
 			ReturnVector crv = getrv(mr.second);
 			rule_expr = format(
 				sources::custom_expression,
-				rule_tag,
+				lang_name + "::" + rule_tag,
 				get <std::string> (crv[0]),
 				get <std::string> (crv[1])
 			);
@@ -227,7 +235,7 @@ template <> class nabu::rule <statement> : public seqrule <identifier, defined, 
 			// Basic expression
 			rule_expr = format(
 				sources::basic_expression,
-				rule_tag,
+				lang_name + "::" + rule_tag,
 				get <std::string> (mr.second)
 			);
 		}
@@ -275,9 +283,10 @@ public:
 			mk_optns(rule_tag, sub_rules);
 
 			// String the rule
-			rule_expr = "template <> struct nabu::rule <" + rule_tag + "> : public multirule <";
+			rule_expr = "template <> struct nabu::rule <"
+				+ lang_name + "::" + rule_tag + "> : public multirule <";
 			for (size_t i = 0; i < sub_rules.size(); i++) {
-				rule_expr += rule_tag + "_optn_" + std::to_string(i);
+				rule_expr += lang_name + "::" + rule_tag + "_optn_" + std::to_string(i);
 				if (i < sub_rules.size() - 1)
 					rule_expr += ", ";
 			}
@@ -302,14 +311,6 @@ extern const char source_str[];
 extern const char rules_str[];
 extern const char nojson_str[];
 extern const char project_str[];
-
-// Main rule and language name
-//	by default, the main rule
-//	is the first rule in the set
-extern std::string main_rule;
-extern std::string lang_name;
-extern bool no_main_rule;
-extern bool no_json;
 
 using prechar = nabu::space_lit <'@'>;
 
