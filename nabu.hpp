@@ -351,16 +351,124 @@ public:
 	}
 };
 
-// Allocator abstract-base-class
-class Allocator {
-};
+// TODO: class for reading argument (and then storing results into a map)
 
-// Default allocator
-class NabuFactory : public Allocator {
+// Sequential allocator class (psize is in KB)
+// Note that this class is purely static
+template <size_t psize = 1024>
+class Allocator {
+	// Follows purely sequential allocation
+	// and deallocation (like a stack)
+	struct Page {
+		uint8_t *memory;
+		uint8_t	*index;
+
+		// Sizes of allocated blocks
+		// uses a stack because its purely sequential
+		std::stack <size_t> sizes;
+
+		// Size left in the page
+		size_t space() const {
+			return (index - memory);
+		}
+
+		// General allocation
+		uint8_t *alloc(size_t bytes) {
+			// TODO: throw out of space
+			uint8_t *caddr = index;
+			index += bytes;
+			sizes.push(bytes);			
+			return caddr;
+		}
+
+		// General deallocation
+		void free(uint8_t *ptr) {
+			// TODO: Throw bad free
+			
+			// Get size of last block
+			size_t pbytes = sizes.top();
+
+			// Make sure index is the end of this block
+			if (ptr + pbytes != index)
+				throw bad_free_order();
+
+			// Decrement the index and pop the block size
+			index -= pbytes;
+			return sizes.pop();
+		}
+
+		// Check if page contains address
+		bool contains(uint8_t *ptr) const {
+			return (ptr >= memory)
+				&& (ptr <= memory + size());
+		}
+
+		// Throw if the pointer to be freed is not
+		// the immediate last one
+		class bad_free_order {};
+	};
+
+	static std::vector <Page> _pages;
+
+	static void _add_page() {
+		uint8_t *memory = new uint8_t[size()];
+		_pages.push_back({memory, memory});
+	}
+public:
+	// Page size in bytes
+	static constexpr size_t size() {
+		return (psize << 10);
+	}
+
+	// General allocation
+	static uint8_t *alloc(size_t bytes) {
+		// Check that bytes can fit into a page
+		if (bytes > size())
+			throw size_overflow();
+
+		// Allocate on first page that has the size
+		for (Page &page : _pages) {
+			if (page.space() >= bytes)
+				return page.alloc(bytes);
+		}
+
+		// If no available page, create a new page
+		_add_page();
+
+		// Allocate on last page
+		return _pages[_pages.size() - 1].alloc(bytes);
+	}
+
+	// General deallocation
+	static void free(uint8_t *ptr) {
+		// Find which page the pointer is
+		// from, and free from there
+		for (Page &page : _pages) {
+			if (page.contains(ptr))
+				page.free(ptr);
+		}
+	}
+
+	// Throw if the requested bytes exceeds page size
+	class size_overflow {};
 };
 
 // Return value server and manager
-struct Server {};
+template <size_t psize = 1024>
+class Server {
+	// Previous addresses
+	static std::vector <uint8_t *> _ptrs;
+public:
+	// Typed general allocation
+	template <class T>
+	static Tret <T> *alloc(const T &value) {
+		uint8_t *raw = Allocator <psize> ::alloc(sizeof(T));
+		Tret <T> *out = reinterpret_cast <Tret <T> *> (raw);
+		out->value = value;
+		_ptrs.push_back(raw);
+		return out;
+	}
+};
 
 // Rule structures:
 // TODO: docs -> always backup the tokens/characters if unsuccessful

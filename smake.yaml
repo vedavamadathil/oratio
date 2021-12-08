@@ -1,0 +1,20 @@
+builds:
+  - nabu_release:
+    - sources: nabu/nabu.cpp
+    - idirs: .
+  - nabu_debug:
+    - sources: nabu/nabu.cpp
+    - idirs: .
+    - flags: '-g, -std=c++11'
+
+targets:
+  - nabu:
+    - modes: gdb, valgrind
+    - builds:
+      - default: nabu_release
+      - gdb: nabu_debug
+      - valgrind: nabu_debug
+    - postbuilds:
+      - default: '{} example.nabu'
+      - gdb: 'gdb {}'
+      - valgrind: 'valgrind {}'
