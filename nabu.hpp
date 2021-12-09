@@ -3,6 +3,7 @@
 
 // Standard headers
 #include <fstream>
+#include <iostream>
 #include <memory>
 #include <stack>
 #include <string>
@@ -123,7 +124,7 @@ public:
 
 		return str + "}";
 	}
-	
+
 	std::string json_str() const {
 		std::string str = "[";
 		for (size_t i = 0; i < _rets.size(); i++) {
@@ -185,7 +186,7 @@ inline ReturnVector getrv(ret rptr)
 // Feeder ABC
 class Feeder {
 protected:
-        bool 			_done = false;
+        // bool 		_done = false;
 
 	// For pushing and popping characters
 	std::stack <int>	_indices;
@@ -196,11 +197,8 @@ public:
 	virtual size_t size() const = 0;
 	virtual size_t line() const = 0;
 
-	// Retrieves the next character
+	// Retrieves the current character and moves
         char next() {
-                if (_done)
-                        return EOF;
-
 		// Get the next character and move
                 char c = getc();
 		move();
@@ -240,17 +238,13 @@ public:
 
 		char c;
 		while (k-- > 0) {
-			c = getc();
+			c = next();
 
-			if (c == EOF)	
+			if (c == EOF)
 				return out;
-			
+
 			out += c;
-			
-			// Move to the next character
-			move();
 		}
-		std::cout << "\tREAD [" << n << "] got \"" << out << "\"\n";
 
 		return out;
 	}
@@ -270,11 +264,11 @@ public:
 		char n;
 		while (((n = next()) != EOF) && (n != c))
 			out += n;
-		
+
 		// Return status
 		return {n == c, out};
 	}
-	
+
 	// Moves backward
 	void backup(int i = 1) {
 		move(-i);
@@ -282,16 +276,16 @@ public:
 
 	// Skips white space
 	void skip_space() {
-		// std::cout << "\tSKIP SPACE @\'" << getc() << "\' line = " << line() << std::endl;
-		// Loop until whitespace
-		char c = getc();		
-		while (isspace(c))
-			c = next();
-		// std::cout << "\t\tENDED @\'" << getc() << "\'\n";
+		// std::cout << "\tSKIP SPACE [" << (int) getc() << " vs. EOF = " << EOF << "] line = " << line() << std::endl;
 
-		/* Move back
+		// Loop until whitespace
+		while (isspace(next()));
+
+		// Move back
 		if (getc() != EOF)
-			move(-1); */
+			move(-1);
+
+		// std::cout << "\t\tENDED [" << (int) getc() << "]\n";
 	}
 
 	// Skip white space without newline
@@ -299,7 +293,7 @@ public:
 		char c = getc();
 		if (!isspace(c) || c == '\n')
 			return;
-		
+
 		while (isspace(c) && c != '\n')
 			c = next();
 
@@ -334,15 +328,15 @@ public:
         void move(int step) override {
 		// Increment and check bounds
 		_index += step;
-		_done = (_index >= _source.size());
+		// _done = (_index >= _source.size());
 
 		// Cap the index
 		_index = std::min((int) _source.size(), std::max(0, _index));
-
-		// std::cout << "MOVing...\n";
         }
 
         char getc() const override {
+		if (_index >= size())
+			return EOF;
                 return _source[_index];
         }
 
@@ -374,7 +368,7 @@ public:
 
 		str.assign((std::istreambuf_iterator <char> (file)),
 			   std::istreambuf_iterator <char> ());
-			
+
 		// Return the feeder
 		return StringFeeder(str);
 	}
@@ -391,7 +385,75 @@ struct rule {
 	}
 };
 
-// TODO: rule with debugging
+// Type to string converter
+template <class T>
+struct name {
+	static const std::string value;
+};
+
+template <class T>
+const std::string name <T> ::value = "?";
+
+// Macro for the above
+#define set_name(T, str)				\
+	template <>					\
+	const std::string name <T> ::value = #str
+
+// State of debug printing
+// 	has a dummy template parameter
+// 	to keep in this header
+template <class T = void>
+struct printing {
+	static size_t level;
+	static size_t indent;
+
+	// Get indent string
+	static std::string get_indent() {
+		return std::string(indent * level, ' ');
+	}
+	
+	static std::string get_next_indent() {
+		return std::string(indent * (level + 1), ' ');
+	}
+};
+
+// Indent level
+template <class T>
+size_t printing <T> ::level = 0;
+
+// Indent size
+template <class T>
+size_t printing <T> ::indent = 2;
+
+// Debugging wrapper for rule
+template <class T>
+struct grammar {
+	static constexpr char success[] = "\033[33m";
+	static constexpr char failure[] = "\033[31m";
+
+	static ret value(Feeder *fd) {
+		// TODO: macro switch
+		std::string indent = printing <> ::get_indent();
+
+		// Print and evaluate
+		std::cout << indent << "<" << name <T> ::value << ">\n";
+
+		printing <> ::level++;
+		ret rptr = rule <T> ::value(fd);
+
+		std::string nindent = printing <> ::get_next_indent();
+		if (rptr)
+			std::cout << nindent << "SUCCESS [" << rptr->str() << "]\n";
+		else
+			std::cout << nindent << "FAILURE\n";
+
+		std::cout << indent << "</" << name <T> ::value << ">\n";
+		printing <> ::level--;
+
+		// Return value
+		return rptr;
+	}
+};
 
 // Special (alternate) return type for multirules
 //	contains information about the index
@@ -411,7 +473,7 @@ struct multirule {
 	static ret value(Feeder *) {
 		return nullptr;
 	}
-	
+
 	static ret _process(Feeder *, int &prev) {
 		prev = -1;
 		return nullptr;
@@ -446,7 +508,7 @@ protected:
 	static mt_ret _value(Feeder *fd) {
 		int prev = 0;
 		ret rptr = _process(fd, prev);
-		return {prev, rptr};	
+		return {prev, rptr};
 	}
 };
 
@@ -458,7 +520,7 @@ struct seqrule {
 		rets.clear();
 		return false;
 	}
-	
+
 	static ret value(Feeder *fd, bool skip = true) {
 		return ret(new ReturnVector());
 	}
@@ -512,7 +574,7 @@ struct seqrule <T, U...> {
 		fd->checkpoint();			// Need to respawn on failure
 		if (skip)
 			fd->skip_space();
-		
+
 		ret rptr = rule <T> ::value(fd);
 		if (!rptr) {
 			// Clear on failure
@@ -544,7 +606,7 @@ struct kstar {
 	static ret value(Feeder *fd) {
 		std::vector <ret > rets;
 		ret rptr;
-		while ((rptr = rule <T> ::value(fd)))
+		while ((rptr = grammar <T> ::value(fd)))
 			rets.push_back(rptr);
 		return ret(new ReturnVector(rets));
 	}
@@ -560,9 +622,9 @@ struct kplus {
 	static ret value(Feeder *fd) {
 		std::vector <ret > rets;
 		ret rptr;
-		while ((rptr = rule <T> ::value(fd)))
+		while ((rptr = grammar <T> ::value(fd)))
 			rets.push_back(rptr);
-		
+
 		if (rets.size() > 0)
 			return ret(new ReturnVector(rets));
 		return nullptr;
@@ -613,6 +675,18 @@ struct dot {};
 struct comma {};
 struct equals {};
 
+// Set names
+set_name(identifier, identifier);
+
+// For templates
+template <class T>
+struct name <skipper <T>> {
+	static const std::string value;
+};
+
+template <class T>
+const std::string name <skipper <T>> ::value = "skipper <" + name <T> ::value + ">";
+
 ////////////////////////////////////
 // Rule structure specializations //
 ////////////////////////////////////
@@ -622,8 +696,8 @@ template <class T>
 struct rule <skipper <T>> {
 	static ret value(Feeder *fd) {
 		fd->skip_space();
-		std::cout << "\tSKIPPER(" << typeid(T()).name() << "): ended on \'" << fd->getc() << "\'\n";
-		return rule <T> ::value(fd);
+		// std::cout << "\tSKIPPER(" << typeid(T()).name() << "): ended on \'" << fd->getc() << "\'\n";
+		return grammar <T> ::value(fd);
 	}
 };
 
@@ -632,8 +706,8 @@ template <class T>
 struct rule <skipper_no_nl <T>> {
 	static ret value(Feeder *fd) {
 		fd->skip_space_no_nl();
-		std::cout << "\tSKIPPER NO NL: ended on \'" << fd->getc() << "\'\n";
-		return rule <T> ::value(fd);
+		// std::cout << "\tSKIPPER NO NL: ended on \'" << fd->getc() << "\'\n";
+		return grammar <T> ::value(fd);
 	}
 };
 
@@ -644,7 +718,7 @@ struct rule <lit <c>> {
 		char n = fd->next();
 		if (n == c)
 			return ret(new Tret <char> (n));
-		
+
 		return fd->abort();
 	}
 };
@@ -663,7 +737,7 @@ struct rule <space_lit <c>> {
 
 			return ret(new Tret <char> (n));
 		}
-		
+
 		return fd->abort();
 	}
 };
@@ -699,7 +773,7 @@ struct rule <str <s>> {
 			fd->erase_cp();
 			return ret(new Tret <std::string> (str));
 		}
-		
+
 		// Restore index and fail
 		fd->respawn();
 		return NABU_FAILURE;
@@ -713,13 +787,13 @@ struct rule <cchar> {
 		char n = fd->next();
 		if (n != '\'')
 			return fd->abort();
-		
+
 		char c = fd->next();
 		if (c == '\\') {
 			char n = fd->next();
 			if (n == '\'')
 				return ret(new Tret <char> (c));
-			
+
 			// TODO: throw error
 			return fd->abort();
 		}
@@ -727,7 +801,7 @@ struct rule <cchar> {
 		n = fd->next();
 		if (n != '\'')
 			return fd->abort();
-		
+
 		return ret(new Tret <char> (c));
 	}
 };
@@ -786,19 +860,16 @@ struct rule <cstr> {
 template <>
 struct rule <identifier> {
 	static ret value(Feeder *fd) {
-		char n = fd->getc();
+		char n = fd->next();
 		if (n == '_' || isalpha(n)) {
 			std::string str;
 
 			str += n;
-			std::cout << "\t--> IDENTIFIER = \'" << n << "\'" << " @" << fd->cindex() << std::endl;
 			while (true) {
 				n = fd->next();
-				std::cout << "\t--> IDENTIFIER = \'" << n << "\'" << " @" << fd->cindex() << std::endl;
 				if (n == '_' || isalpha(n) || isdigit(n)) {
 					str += n;
 				} else {
-					// fd->backup();
 					fd->noef(n);
 					break;
 				}
@@ -818,7 +889,7 @@ struct rule <digit> {
 		char n = fd->next();
 		if (isdigit(n))
 			return ret(new Tret <int> (n - '0'));
-		
+
 		return fd->noef(n);
 	}
 };
@@ -830,7 +901,7 @@ struct rule <alpha> {
 		char n = fd->next();
 		if (isalpha(n))
 			return ret(new Tret <int> (n));
-		
+
 		return fd->noef(n);
 	}
 };
@@ -969,7 +1040,7 @@ template <class F>
 static ret float_rule(Feeder *fd) {
 	// Read first character
 	char n = fd->next();
-	
+
 	// Early failures
 	if (!isdigit(n) && n != '.')
 		return fd->abort();

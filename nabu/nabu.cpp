@@ -12,7 +12,7 @@ set <std::string> tags;
 vector <std::string> code;
 
 string main_rule;
-string lang_name;		// TODO: what do we really this for?
+string lang_name;
 string first_tag;
 
 bool no_main_rule = false;
@@ -31,16 +31,7 @@ const char nojson_str[] = "nojson";
 const char project_str[] = "project";
 
 // Sources
-StringFeeder sf = R"(
-@project mylang
-
-@entry number
-
-paren := '(' expression ')'
-number := k8 {// nothing here...}
-	| digit*
-	| identifier digit+ {// also nothing here}
-)";
+StringFeeder sf = R"(hello world)";
 
 // File writer
 int nabu_out(const std::string &file)
@@ -79,16 +70,16 @@ int nabu_out(const std::string &file)
 	fout << sources::hrule_tag << std::endl;
 	for (auto &tag : tags)
 		fout << "struct " << tag << " {};\n";
-	
+
 	// End namespace
-	if (!lang_name.empty())	
+	if (!lang_name.empty())
 		fout << "\n}\n";
 
 	// Output all code
 	fout << sources::hrule << std::endl;
 	for (auto &line : code)
 		fout << line << endl;
-	
+
 	// Main function
 	std::string main = lang_name + "::" + prefix + main_rule;
 	if (!main_rule.empty()) {
@@ -103,7 +94,7 @@ int nabu_out(const std::string &file)
 
 int main(int argc, char *argv[])
 {
-	// Check number of arguments
+	/* Check number of arguments
 	if (argc < 2) {
 		fprintf(stderr, "Usage: %s <file.nabu>\n", argv[0]);
 		return 1;
@@ -124,5 +115,9 @@ int main(int argc, char *argv[])
 	}
 
 	// Run
-	return nabu_out(filename);
+	return nabu_out(filename); */
+
+	// ret rptr = grammar <identifier> ::value(&sf);
+	ret rptr = kstar <skipper <identifier>> ::value(&sf);
+	std::cout << getrv(rptr).json() << std::endl;
 }

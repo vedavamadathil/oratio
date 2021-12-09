@@ -131,7 +131,7 @@ template <> struct nabu::rule <term> : public multirule <
 		skipper_no_nl <cchar>,
 		skipper_no_nl <cstr>
 	> {
-	
+
 	static ret value(Feeder *fd) {
 		mt_ret mr = _value(fd);
 		if (mr.first < 0)
@@ -182,7 +182,7 @@ template <> struct nabu::rule <term_expr> : public kplus <term> {
 		if (!rptr)
 			return nullptr;
 		std::cout << "\tTERM_EXPR = " << getrv(rptr).str() << std::endl;
-		
+
 		std::string combined = "seqrule <";
 
 		// Should always be a list of strings
@@ -227,7 +227,7 @@ template <> struct nabu::rule <expression> : public multirule <
 		custom_expression,
 		basic_expression
 	> {
-	
+
 	// Enable indexing of returns
 	// TODO: fast method for this?
 	static ret value(Feeder *fd) {
@@ -294,7 +294,7 @@ public:
 
 		ReturnVector rvec = getrv(rptr);
 		std::cout << "STATEMENT = " << rvec.str() << std::endl;
-		
+
 		// Get the rule tag
 		std::string rule_tag = prefix + get <std::string> (rvec[0]);
 
@@ -324,7 +324,7 @@ public:
 				if (i < sub_rules.size() - 1)
 					rule_expr += ", ";
 			}
-			
+
 			rule_expr += "> {};";
 		} else {
 			rule_expr = mk_rule(rule_tag, mr);
@@ -338,7 +338,7 @@ public:
 	}
 };
 
-template <> class nabu::rule <equal_trap_statement> : public seqrule <
+template <> struct nabu::rule <equal_trap_statement> : public seqrule <
 		identifier,
 		equal_trap,
 		expression,
@@ -426,7 +426,6 @@ template <> struct nabu::rule <pre_rules> : public seqrule <pre_dir <rules_str>>
 
 template <> struct nabu::rule <pre_nojson> : public seqrule <pre_dir <nojson_str>> {
 	static ret value(Feeder *fd) {
-		std::cout << "---> trying @nojson\n";
 		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
@@ -442,7 +441,6 @@ template <> struct nabu::rule <pre_project> : public seqrule <
 	> {
 
 	static ret value(Feeder *fd) {
-		std::cout << "---> trying @project\n";
 		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
@@ -450,7 +448,7 @@ template <> struct nabu::rule <pre_project> : public seqrule <
 		ReturnVector rvec = getrv(rptr);
 		lang_name = get <std::string> (rvec[1]);
 		return ret(new Tret <std::string> ("@project " + lang_name));
-	}	
+	}
 };
 
 struct preprocessor {};
@@ -463,17 +461,7 @@ struct nabu::rule <preprocessor> : public multirule <
 		pre_nojson,
 		pre_project
 		// TODO: add another generic preprocessor directive rule for error handling
-	> {
-
-	static ret value(Feeder *fd) {
-		std::cout << "TRYING PREPROCESS.\n";
-		ret rptr = _value(fd).second;
-		if (!rptr)
-			return nullptr;
-		std::cout << "GOT PREPROCESS = " << rptr->str() << std::endl;
-		return rptr;
-	}
-};
+	> {};
 
 // Unit penultimate rule
 struct unit {};
