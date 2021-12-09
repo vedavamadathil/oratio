@@ -17,6 +17,7 @@ string first_tag;
 
 bool no_main_rule = false;
 bool no_json = false;
+bool print_json = false;
 
 // Struct prefixes
 const char *prefix = "nbg_";
@@ -50,8 +51,8 @@ int nabu_out(const std::string &file)
 
 	// Read the source
 	ret rptr = rule <statement_list> ::value(&sf);
-	// std::cout << getrv(rptr).json() << std::endl;
-	// TODO: add debugging mode
+	if (print_json)
+		std::cout << getrv(rptr).json() << std::endl;
 
 	// Set main rule
 	if (no_main_rule) {
@@ -104,12 +105,26 @@ int main(int argc, char *argv[])
 {
 	// Check number of arguments
 	if (argc < 2) {
-		fprintf(stderr, "Usage: %s <file.nabu>\n", argv[0]);
+		fprintf(stderr, "Usage: %s [--json] <file.nabu>\n", argv[0]);
 		return 1;
 	}
 
 	// Check file extension
 	string filename = argv[1];
+
+	// TODO: create class for parsing arguments
+	if (filename == "--json"
+		|| filename == "-j") {
+		print_json = true;
+
+		if (argc < 3) {
+			fprintf(stderr, "Usage: %s [--json] <file.nabu>\n", argv[0]);
+			return 1;
+		}
+
+		filename = argv[2];
+	}
+
 	if (filename.substr(filename.size() - 5) != ".nabu") {
 		fprintf(stderr, "Error: file extension must be *.nabu\n");
 		return 1;
