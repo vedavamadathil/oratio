@@ -9,17 +9,19 @@ builds:
 
 targets:
   - nabu:
-    - modes: gdb, valgrind
+    - modes: gdb, lldb, valgrind
     - builds:
       - default: nabu_release
       - gdb: nabu_debug
+      - lldb: nabu_debug
       - valgrind: nabu_debug
       - leaks: nabu_debug
     - postbuilds:
       - default: '{} example.nabu'
       - gdb: 'gdb {}'
+      - lldb: 'lldb {}'
       - valgrind: 'valgrind --leak-check=full --show-leak-kinds=all -- {} example.nabu'
       - leaks: 'leaks -atExit -- {} example.nabu'
 
 installs:
-  - nabu: 'sudo install .smake/targets/nabu /usr/local/bin'  
+  - nabu: 'sudo install .smake/targets/nabu /usr/local/bin'

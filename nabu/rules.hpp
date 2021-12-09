@@ -52,6 +52,24 @@ extern const char walrus_str[];
 
 using lbrace = nabu::space_lit <'{'>;
 using option = nabu::space_lit <'|'>;
+using equals = nabu::space_lit <'='>;
+
+// Trap structures
+struct equal_trap {};
+struct equal_trap_statement {};
+
+// Error handling rules
+template <> struct nabu::rule <equal_trap> : public rule <equals> {
+	static ret value(Feeder *fd) {
+		if (rule <equals> ::value(fd)) {
+			// TODO: a function to print errors
+			std::cout << "[LINE] Error: use := instead of =\n";
+			exit(-1);
+		}
+
+		return nullptr;
+	}
+};
 
 //////////////////////
 // Rule definitions //
@@ -143,11 +161,14 @@ template <> struct nabu::rule <term> : public multirule <
 			rule_expr = "str <\"" + get <std::string> (mr.second) + "\">";
 			break;
 		default:
+			// Throw internal error
 			break;
 		}
 
 		// Add rule to set
 		add_tag(rule_tag);
+
+		std::cout << "\tTERM RETURNING: " << rule_expr << std::endl;
 
 		return ret(new Tret <std::string> (rule_expr));
 	}
@@ -160,6 +181,7 @@ template <> struct nabu::rule <term_expr> : public kplus <term> {
 		ret rptr = kplus <term> ::value(fd);
 		if (!rptr)
 			return nullptr;
+		std::cout << "\tTERM_EXPR = " << getrv(rptr).str() << std::endl;
 		
 		std::string combined = "seqrule <";
 
@@ -190,9 +212,11 @@ struct option_expression {};
 template <> struct nabu::rule <option_expression> : public seqrule <option, expression> {
 	// TODO: fast method to return first element
 	static ret value(Feeder *fd) {
+		std::cout << "TRYING OPT_EXPR\n";
 		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
+		std::cout << "\tOPTION_EXPR: " << getrv(rptr).str() << std::endl;
 
 		ReturnVector rvec = getrv(rptr);
 		return rvec[1];
@@ -217,7 +241,15 @@ template <> struct nabu::rule <expression> : public multirule <
 struct statement {};
 struct option_list {};
 
-template <> struct nabu::rule <option_list> : public kstar <skipper <option_expression>> {};
+template <> struct nabu::rule <option_list> : public kstar <skipper <option_expression>> {
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
+		std::cout << "TRYING OPT LIST!\n";
+		if (!rptr)
+			return nullptr;
+		return rptr;
+	}
+};
 
 template <> class nabu::rule <statement> : public seqrule <identifier, defined, expression, option_list> {
 	static std::string mk_rule(std::string rule_tag, mt_ret mr) {
@@ -255,11 +287,13 @@ template <> class nabu::rule <statement> : public seqrule <identifier, defined, 
 	}
 public:
 	static ret value(Feeder *fd) {
+		std::cout << "TRYING STATEMENT.\n";
 		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
 
 		ReturnVector rvec = getrv(rptr);
+		std::cout << "STATEMENT = " << rvec.str() << std::endl;
 		
 		// Get the rule tag
 		std::string rule_tag = prefix + get <std::string> (rvec[0]);
@@ -303,6 +337,13 @@ public:
 		return rptr;
 	}
 };
+
+template <> class nabu::rule <equal_trap_statement> : public seqrule <
+		identifier,
+		equal_trap,
+		expression,
+		option_list
+	> {};
 
 // Preprocessor directives
 extern const char entry_str[];
@@ -385,6 +426,7 @@ template <> struct nabu::rule <pre_rules> : public seqrule <pre_dir <rules_str>>
 
 template <> struct nabu::rule <pre_nojson> : public seqrule <pre_dir <nojson_str>> {
 	static ret value(Feeder *fd) {
+		std::cout << "---> trying @nojson\n";
 		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
@@ -400,6 +442,7 @@ template <> struct nabu::rule <pre_project> : public seqrule <
 	> {
 
 	static ret value(Feeder *fd) {
+		std::cout << "---> trying @project\n";
 		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
@@ -420,12 +463,27 @@ struct nabu::rule <preprocessor> : public multirule <
 		pre_nojson,
 		pre_project
 		// TODO: add another generic preprocessor directive rule for error handling
-	> {};
+	> {
+
+	static ret value(Feeder *fd) {
+		std::cout << "TRYING PREPROCESS.\n";
+		ret rptr = _value(fd).second;
+		if (!rptr)
+			return nullptr;
+		std::cout << "GOT PREPROCESS = " << rptr->str() << std::endl;
+		return rptr;
+	}
+};
 
 // Unit penultimate rule
 struct unit {};
 
-template <> struct nabu::rule <unit> : public multirule <statement, preprocessor> {};
+template <> struct nabu::rule <unit> : public multirule <
+		statement,
+		preprocessor,
+		// Error handling
+		equal_trap_statement
+	> {};
 
 // Statement list (ultimate grammar)
 struct statement_list {};

@@ -51,7 +51,7 @@ int nabu_out(const std::string &file)
 
 	// Read the source
 	ret rptr = rule <statement_list> ::value(&sf);
-	// std::cout << getrv(rptr).json() << std::endl;
+	std::cout << getrv(rptr).json() << std::endl;
 	// TODO: add debugging mode
 
 	// Set main rule

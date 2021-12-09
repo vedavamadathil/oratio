@@ -1,9 +1,7 @@
-@project mylang
+@project xyzwlang
 @nojson
+@noentry
 
-@entry number
-
-paren := '(' expression ')'
-number := k8 {return _val;}
-	| digit*
-	| identifier digit+
+sh_type := str
+	| int {}
+	| double

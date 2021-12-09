@@ -189,12 +189,12 @@ protected:
 
 	// For pushing and popping characters
 	std::stack <int>	_indices;
-
 public:
         virtual void move(int = 1) = 0;
         virtual char getc() const = 0;
 	virtual int cindex() const = 0;
 	virtual size_t size() const = 0;
+	virtual size_t line() const = 0;
 
 	// Retrieves the next character
         char next() {
@@ -240,13 +240,17 @@ public:
 
 		char c;
 		while (k-- > 0) {
-			c = next();
+			c = getc();
 
 			if (c == EOF)	
 				return out;
 			
 			out += c;
+			
+			// Move to the next character
+			move();
 		}
+		std::cout << "\tREAD [" << n << "] got \"" << out << "\"\n";
 
 		return out;
 	}
@@ -255,12 +259,19 @@ public:
 	//	returns success boolean (whether the boolean was reached)
 	//	and the actual string
 	std::pair <bool, std::string> read_until(char c) {
+		// Return string
 		std::string out;
 
+		// Early exit and return
+		if (getc())
+			return {true, out};
+
+		// Loop until EOF or character
 		char n;
 		while (((n = next()) != EOF) && (n != c))
 			out += n;
 		
+		// Return status
 		return {n == c, out};
 	}
 	
@@ -271,11 +282,16 @@ public:
 
 	// Skips white space
 	void skip_space() {
-		while (isspace(next()));
+		// std::cout << "\tSKIP SPACE @\'" << getc() << "\' line = " << line() << std::endl;
+		// Loop until whitespace
+		char c = getc();		
+		while (isspace(c))
+			c = next();
+		// std::cout << "\t\tENDED @\'" << getc() << "\'\n";
 
-		// Move back
+		/* Move back
 		if (getc() != EOF)
-			move(-1);
+			move(-1); */
 	}
 
 	// Skip white space without newline
@@ -295,7 +311,7 @@ public:
 	// Moves back and returns failure
 	ret abort(int i = 1) {
 		// Move back and return
-		move(-i);
+		backup(i);
 		return NABU_FAILURE;
 	}
 
@@ -322,6 +338,8 @@ public:
 
 		// Cap the index
 		_index = std::min((int) _source.size(), std::max(0, _index));
+
+		// std::cout << "MOVing...\n";
         }
 
         char getc() const override {
@@ -334,6 +352,13 @@ public:
 
 	virtual size_t size() const override {
 		return _source.size();
+	}
+
+	virtual size_t line() const override {
+		size_t line = 1;
+		for (size_t i = 0; i <= _index; i++)
+			line += (_source[i] == '\n');
+		return line;
 	}
 
 	// From file
@@ -357,7 +382,7 @@ public:
 
 // TODO: class for reading argument (and then storing results into a map)
 
-// Rule structures:
+// Rule structures
 // TODO: docs -> always backup the tokens/characters if unsuccessful
 template <class T>
 struct rule {
@@ -365,6 +390,8 @@ struct rule {
 		return nullptr;
 	}
 };
+
+// TODO: rule with debugging
 
 // Special (alternate) return type for multirules
 //	contains information about the index
@@ -441,9 +468,16 @@ protected:
 	}
 };
 
-// Base case
+// Sequential rules
 template <class T>
 struct seqrule <T> {
+	static ret value(Feeder *fd, bool skip = true) {
+		std::vector <ret > sret;
+		if (_process(fd, sret, skip))
+			return ret(new ReturnVector(sret));
+		return nullptr;
+	}
+
 	static bool _process(Feeder *fd, std::vector <ret > &sret, bool skip) {
 		if (skip)
 			fd->skip_space();
@@ -456,13 +490,6 @@ struct seqrule <T> {
 
 		return false;
 	}
-	
-	static ret value(Feeder *fd, bool skip = true) {
-		std::vector <ret > sret;
-		if (_process(fd, sret, skip))
-			return ret(new ReturnVector(sret));
-		return nullptr;
-	}
 protected:
 	// Protected method that is equal to value
 	// 	exists to conveniently call from derived
@@ -474,6 +501,13 @@ protected:
 
 template <class T, class ... U>
 struct seqrule <T, U...> {
+	static ret value(Feeder *fd, bool skip = true) {
+		std::vector <ret > sret;
+		if (_process(fd, sret, skip))
+			return ret(new ReturnVector(sret));
+		return nullptr;
+	}
+
 	static bool _process(Feeder *fd, std::vector <ret > &sret, bool skip) {
 		fd->checkpoint();			// Need to respawn on failure
 		if (skip)
@@ -498,13 +532,6 @@ struct seqrule <T, U...> {
 		fd->respawn();				// Respawn on failure
 		return false;
 	}
-	
-	static ret value(Feeder *fd, bool skip = true) {
-		std::vector <ret > sret;
-		if (_process(fd, sret, skip))
-			return ret(new ReturnVector(sret));
-		return nullptr;
-	}
 protected:
 	static ret _value(Feeder *fd, bool skip = true) {
 		return value(fd, skip);
@@ -521,6 +548,10 @@ struct kstar {
 			rets.push_back(rptr);
 		return ret(new ReturnVector(rets));
 	}
+protected:
+	static ret _value(Feeder *fd) {
+		return value(fd);
+	}
 };
 
 // Kleene plus rule
@@ -535,6 +566,10 @@ struct kplus {
 		if (rets.size() > 0)
 			return ret(new ReturnVector(rets));
 		return nullptr;
+	}
+protected:
+	static ret _value(Feeder *fd) {
+		return value(fd);
 	}
 };
 
@@ -587,6 +622,7 @@ template <class T>
 struct rule <skipper <T>> {
 	static ret value(Feeder *fd) {
 		fd->skip_space();
+		std::cout << "\tSKIPPER(" << typeid(T()).name() << "): ended on \'" << fd->getc() << "\'\n";
 		return rule <T> ::value(fd);
 	}
 };
@@ -596,6 +632,7 @@ template <class T>
 struct rule <skipper_no_nl <T>> {
 	static ret value(Feeder *fd) {
 		fd->skip_space_no_nl();
+		std::cout << "\tSKIPPER NO NL: ended on \'" << fd->getc() << "\'\n";
 		return rule <T> ::value(fd);
 	}
 };
@@ -619,9 +656,13 @@ struct rule <space_lit <c>> {
 		// Skip space first
 		fd->skip_space();
 
-		char n = fd->next();
-		if (n == c)
+		char n = fd->getc();
+		if (n == c) {
+			// Move ahead
+			fd->next();
+
 			return ret(new Tret <char> (n));
+		}
 		
 		return fd->abort();
 	}
@@ -695,13 +736,15 @@ struct rule <cchar> {
 template <>
 struct rule <cstr> {
 	static ret value(Feeder *fd) {
+		fd->checkpoint();		// Create checkpoint
+
 		char n = fd->next();
 		if (n != '\"')
-			return fd->abort();
+			return fd->noef(n);
 
 		std::string str;
 
-		// Read until closing quote
+		// Read until closing quote or EOF
 		while (true) {
 			n = fd->next();
 			if (n == '\\') {
@@ -724,11 +767,17 @@ struct rule <cstr> {
 				}
 			} else if (n == '\"') {
 				break;
+			} else if (n == EOF) {
+				// TODO: checkpoint
+				// Respawn to checkpoint and return nullptr
+				fd->respawn();
+				return nullptr;
 			} else {
 				str.push_back(n);
 			}
 		}
 
+		fd->erase_cp();			// Erase the checkpoint
 		return ret(new Tret <std::string> (str));
 	}
 };
@@ -737,17 +786,20 @@ struct rule <cstr> {
 template <>
 struct rule <identifier> {
 	static ret value(Feeder *fd) {
-		char n = fd->next();
+		char n = fd->getc();
 		if (n == '_' || isalpha(n)) {
 			std::string str;
 
 			str += n;
+			std::cout << "\t--> IDENTIFIER = \'" << n << "\'" << " @" << fd->cindex() << std::endl;
 			while (true) {
 				n = fd->next();
+				std::cout << "\t--> IDENTIFIER = \'" << n << "\'" << " @" << fd->cindex() << std::endl;
 				if (n == '_' || isalpha(n) || isdigit(n)) {
 					str += n;
 				} else {
-					fd->backup();
+					// fd->backup();
+					fd->noef(n);
 					break;
 				}
 			}
