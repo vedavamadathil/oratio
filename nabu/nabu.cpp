@@ -31,7 +31,15 @@ const char nojson_str[] = "nojson";
 const char project_str[] = "project";
 
 // Sources
-StringFeeder sf = R"(hello world)";
+StringFeeder sf = R"(
+@project xyzwlang
+@nojson
+@noentry
+
+sh_type := str
+	| int {}
+	| double
+)";
 
 // File writer
 int nabu_out(const std::string &file)
@@ -42,7 +50,7 @@ int nabu_out(const std::string &file)
 
 	// Read the source
 	ret rptr = rule <statement_list> ::value(&sf);
-	std::cout << getrv(rptr).json() << std::endl;
+	// std::cout << getrv(rptr).json() << std::endl;
 	// TODO: add debugging mode
 
 	// Set main rule
@@ -94,7 +102,7 @@ int nabu_out(const std::string &file)
 
 int main(int argc, char *argv[])
 {
-	/* Check number of arguments
+	// Check number of arguments
 	if (argc < 2) {
 		fprintf(stderr, "Usage: %s <file.nabu>\n", argv[0]);
 		return 1;
@@ -115,9 +123,5 @@ int main(int argc, char *argv[])
 	}
 
 	// Run
-	return nabu_out(filename); */
-
-	// ret rptr = grammar <identifier> ::value(&sf);
-	ret rptr = kstar <skipper <identifier>> ::value(&sf);
-	std::cout << getrv(rptr).json() << std::endl;
+	return nabu_out(filename);
 }

@@ -256,10 +256,6 @@ public:
 		// Return string
 		std::string out;
 
-		// Early exit and return
-		if (getc())
-			return {true, out};
-
 		// Loop until EOF or character
 		char n;
 		while (((n = next()) != EOF) && (n != c))
@@ -388,16 +384,38 @@ struct rule {
 // Type to string converter
 template <class T>
 struct name {
-	static const std::string value;
+	static constexpr char value[] = "?";
 };
 
 template <class T>
-const std::string name <T> ::value = "?";
+constexpr char name <T> ::value[];
 
 // Macro for the above
 #define set_name(T, str)				\
 	template <>					\
-	const std::string name <T> ::value = #str
+	struct nabu::name <T> {				\
+		static constexpr char value[] = #str;	\
+	};						\
+							\
+	constexpr char nabu::name <T> ::value[];
+
+// Setting grammar off
+template <class T>
+struct grammar_debug_off {
+	static constexpr bool value = false;
+};
+
+template <class T>
+constexpr bool grammar_debug_off <T> ::value;
+
+// Macro for the above
+#define set_debug_off(T)					\
+	template <>						\
+	struct nabu::grammar_debug_off <T> {			\
+		static constexpr bool value = true;		\
+	};							\
+								\
+	constexpr bool nabu::grammar_debug_off <T> ::value;
 
 // State of debug printing
 // 	has a dummy template parameter
@@ -428,32 +446,63 @@ size_t printing <T> ::indent = 2;
 // Debugging wrapper for rule
 template <class T>
 struct grammar {
-	static constexpr char success[] = "\033[33m";
-	static constexpr char failure[] = "\033[31m";
+	static const char reset[];
+	static const char tag[];
+	static const char success[];
+	static const char failure[];
 
 	static ret value(Feeder *fd) {
-		// TODO: macro switch
+
+#ifdef NABU_DEBUG_RULES
+
+		// Early exit
+		if (grammar_debug_off <T> ::value)
+			return rule <T> ::value(fd);
+
 		std::string indent = printing <> ::get_indent();
 
 		// Print and evaluate
-		std::cout << indent << "<" << name <T> ::value << ">\n";
+		std::cout << indent << "<" << tag << name <T> ::value
+			<< reset << ">\n";
 
 		printing <> ::level++;
 		ret rptr = rule <T> ::value(fd);
 
 		std::string nindent = printing <> ::get_next_indent();
 		if (rptr)
-			std::cout << nindent << "SUCCESS [" << rptr->str() << "]\n";
+			std::cout << nindent << success << "SUCCESS" << reset << " [" << rptr->str() << "]\n";
 		else
-			std::cout << nindent << "FAILURE\n";
+			std::cout << nindent << failure << "FAILURE\n" << reset;
 
-		std::cout << indent << "</" << name <T> ::value << ">\n";
+		std::cout << indent << "<" << tag << "/" << name <T> ::value
+			<< reset << ">\n\n";
 		printing <> ::level--;
 
 		// Return value
 		return rptr;
+
+#else
+
+	// Redirect to plain rule
+	return rule <T> ::value(fd);
+
+#endif
+
 	}
 };
+
+// Static variables
+template <class T>
+const char grammar <T> ::reset[] = "\033[0m";
+
+template <class T>
+const char grammar <T> ::tag[] = "\033[4;33m";
+
+template <class T>
+const char grammar <T> ::success[] = "\033[1;92m";
+
+template <class T>
+const char grammar <T> ::failure[] = "\033[1;91m";
 
 // Special (alternate) return type for multirules
 //	contains information about the index
@@ -489,7 +538,8 @@ protected:
 template <class T, class ... U>
 struct multirule <T, U...> {
 	static ret value(Feeder *fd) {
-		ret rptr = rule <T> ::value(fd);
+		// Evaluate
+		ret rptr = grammar <T> ::value(fd);
 		if (rptr)
 			return rptr;
 
@@ -497,7 +547,7 @@ struct multirule <T, U...> {
 	}
 
 	static ret _process(Feeder *fd, int &prev) {
-		ret rptr = rule <T> ::value(fd);
+		ret rptr = grammar <T> ::value(fd);
 		if (rptr)
 			return rptr;
 
@@ -515,7 +565,6 @@ protected:
 // Sequential rule
 template <class ... T>
 struct seqrule {
-	// TODO: refactor to process
 	static bool _process(Feeder *fd, std::vector <ret > &rets, bool skip) {
 		rets.clear();
 		return false;
@@ -534,9 +583,14 @@ protected:
 template <class T>
 struct seqrule <T> {
 	static ret value(Feeder *fd, bool skip = true) {
+		fd->checkpoint();				// Create checkpoint
 		std::vector <ret > sret;
-		if (_process(fd, sret, skip))
+		if (_process(fd, sret, skip)) {
+			fd->erase_cp();				// Erase checkpoint
 			return ret(new ReturnVector(sret));
+		}
+
+		fd->respawn();					// Reset at checkpoint
 		return nullptr;
 	}
 
@@ -544,7 +598,7 @@ struct seqrule <T> {
 		if (skip)
 			fd->skip_space();
 
-		ret rptr = rule <T> ::value(fd);
+		ret rptr = grammar <T> ::value(fd);
 		if (rptr) {
 			sret.push_back(rptr);
 			return true;
@@ -564,34 +618,35 @@ protected:
 template <class T, class ... U>
 struct seqrule <T, U...> {
 	static ret value(Feeder *fd, bool skip = true) {
+		fd->checkpoint();				// Create checkpoint
 		std::vector <ret > sret;
-		if (_process(fd, sret, skip))
+		if (_process(fd, sret, skip)) {
+			fd->erase_cp();				// Erase checkpoint
 			return ret(new ReturnVector(sret));
+		}
+
+		fd->respawn();					// Reset at checkpoint
 		return nullptr;
 	}
 
 	static bool _process(Feeder *fd, std::vector <ret > &sret, bool skip) {
-		fd->checkpoint();			// Need to respawn on failure
 		if (skip)
 			fd->skip_space();
 
-		ret rptr = rule <T> ::value(fd);
+		ret rptr = grammar <T> ::value(fd);
 		if (!rptr) {
 			// Clear on failure
 			sret.clear();
-			fd->respawn();			// Respawn on failure
 			return false;	// Failure on first token
 		}
 
 		if (seqrule <U...> ::_process(fd, sret, skip)) {
 			sret.insert(sret.begin(), rptr);
-			fd->erase_cp();			// Erase checkpoint
 			return true;
 		}
 
 		// Clear on failure
 		sret.clear();
-		fd->respawn();				// Respawn on failure
 		return false;
 	}
 protected:
@@ -646,7 +701,6 @@ struct skipper_no_nl;
 template <char c>
 struct lit {};
 
-
 template <char c>
 struct space_lit {};
 
@@ -663,6 +717,8 @@ struct cchar {};
 // String in C
 struct cstr {};
 
+// Identifier and word
+struct word {};
 struct identifier {};
 
 // Literal groups
@@ -676,7 +732,10 @@ struct comma {};
 struct equals {};
 
 // Set names
+set_name(word, word);
 set_name(identifier, identifier);
+set_name(cstr, cstr);
+set_name(cchar, cchar);
 
 // For templates
 template <class T>
@@ -685,7 +744,43 @@ struct name <skipper <T>> {
 };
 
 template <class T>
-const std::string name <skipper <T>> ::value = "skipper <" + name <T> ::value + ">";
+const std::string name <skipper <T>> ::value = "skipper <" + std::string(name <T> ::value) + ">";
+
+// Literary characters
+template <char c>
+struct name <lit <c>> {
+	static const std::string value;
+};
+
+template <char c>
+const std::string name <lit <c>> ::value = std::string("lit <\'") + c + "\'>";
+
+// Literary string
+template <const char *s>
+struct name <str <s>> {
+	static const std::string value;
+};
+
+template <const char *s>
+const std::string name <str <s>> ::value = std::string("str <\"") + s + "\">";
+
+// Space literal
+template <char c>
+struct name <space_lit <c>> {
+	static const std::string value;
+};
+
+template <char c>
+const std::string name <space_lit <c>> ::value = std::string("space_lit <\'") + c + "\'>";
+
+// Delimter string
+template <char c>
+struct name <delim_str <c>> {
+	static const std::string value;
+};
+
+template <char c>
+const std::string name <delim_str <c>> ::value = std::string("delim_str <\'") + c + "\'>";
 
 ////////////////////////////////////
 // Rule structure specializations //
@@ -813,8 +908,10 @@ struct rule <cstr> {
 		fd->checkpoint();		// Create checkpoint
 
 		char n = fd->next();
-		if (n != '\"')
-			return fd->noef(n);
+		if (n != '\"') {
+			fd->respawn();		// Reset at checkpoint
+			return NABU_FAILURE;
+		}
 
 		std::string str;
 
@@ -853,6 +950,32 @@ struct rule <cstr> {
 
 		fd->erase_cp();			// Erase the checkpoint
 		return ret(new Tret <std::string> (str));
+	}
+};
+
+// Word: characters with no space
+template <>
+struct rule <word> {
+	static ret value(Feeder *fd) {
+		char n = fd->next();
+		if (!isspace(n)) {
+			std::string str;
+
+			str += n;
+			while (true) {
+				n = fd->next();
+				if (isspace(n)) {
+					fd->noef(n);
+					break;
+				} else {
+					str += n;
+				}
+			}
+
+			return ret(new Tret <std::string> (str));
+		}
+
+		return fd->abort();
 	}
 };
 

@@ -167,9 +167,6 @@ template <> struct nabu::rule <term> : public multirule <
 
 		// Add rule to set
 		add_tag(rule_tag);
-
-		std::cout << "\tTERM RETURNING: " << rule_expr << std::endl;
-
 		return ret(new Tret <std::string> (rule_expr));
 	}
 };
@@ -181,7 +178,6 @@ template <> struct nabu::rule <term_expr> : public kplus <term> {
 		ret rptr = kplus <term> ::value(fd);
 		if (!rptr)
 			return nullptr;
-		std::cout << "\tTERM_EXPR = " << getrv(rptr).str() << std::endl;
 
 		std::string combined = "seqrule <";
 
@@ -212,11 +208,9 @@ struct option_expression {};
 template <> struct nabu::rule <option_expression> : public seqrule <option, expression> {
 	// TODO: fast method to return first element
 	static ret value(Feeder *fd) {
-		std::cout << "TRYING OPT_EXPR\n";
 		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
-		std::cout << "\tOPTION_EXPR: " << getrv(rptr).str() << std::endl;
 
 		ReturnVector rvec = getrv(rptr);
 		return rvec[1];
@@ -244,7 +238,6 @@ struct option_list {};
 template <> struct nabu::rule <option_list> : public kstar <skipper <option_expression>> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd);
-		std::cout << "TRYING OPT LIST!\n";
 		if (!rptr)
 			return nullptr;
 		return rptr;
@@ -287,13 +280,11 @@ template <> class nabu::rule <statement> : public seqrule <identifier, defined, 
 	}
 public:
 	static ret value(Feeder *fd) {
-		std::cout << "TRYING STATEMENT.\n";
 		ret rptr = _value(fd);
 		if (!rptr)
 			return nullptr;
 
 		ReturnVector rvec = getrv(rptr);
-		std::cout << "STATEMENT = " << rvec.str() << std::endl;
 
 		// Get the rule tag
 		std::string rule_tag = prefix + get <std::string> (rvec[0]);
@@ -477,5 +468,32 @@ template <> struct nabu::rule <unit> : public multirule <
 struct statement_list {};
 
 template <> struct nabu::rule <statement_list> : public kstar <skipper <unit>> {};
+
+// Set names
+set_name(term_star, term_star);
+set_name(term_plus, term_plus);
+
+set_name(term, term);
+set_name(term_expr, term_expr);
+set_name(custom_enclosure, custom_enclosure);
+set_name(custom_expression, custom_expression);
+set_name(basic_expression, basic_expression);
+
+set_name(defined, defined);
+set_name(expression, expression);
+set_name(option_list, option_list);
+
+set_name(pre_entry, entry);
+set_name(pre_noentry, noentry);
+set_name(pre_nojson, nojson);
+set_name(pre_source, source);
+set_name(pre_rules, rules);
+set_name(pre_project, project);
+
+set_name(preprocessor, preprocessor);
+set_name(statement, statement);
+set_name(equal_trap, equal_trap);
+
+set_name(unit, unit);
 
 #endif
