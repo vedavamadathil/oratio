@@ -220,7 +220,16 @@ public:
         virtual char getc() const = 0;
 	virtual int cindex() const = 0;
 	virtual size_t size() const = 0;
+
+	// Position tracking
 	virtual size_t line() const = 0;
+	virtual size_t col() const = 0;
+
+	// Convenience methods
+	virtual std::string get_line(size_t) const = 0;
+
+	// Source of characters
+	virtual const std::string &source() const = 0;
 
 	// Retrieves the current character and moves
         char next() {
@@ -339,11 +348,13 @@ public:
 
 // String feeder
 class StringFeeder : public Feeder {
+	std::string	_loc;
         std::string	_source;
         int		_index;
 public:
         StringFeeder(const char *str) : StringFeeder(std::string(str)) {}
-        StringFeeder(const std::string &str) : _source(str), _index(0) {}
+        StringFeeder(const std::string &str, const std::string &loc = "")
+		: _loc(loc), _source(str), _index(0) {}
 
         // Virtual function overrides
         void move(int step) override {
@@ -369,11 +380,46 @@ public:
 		return _source.size();
 	}
 
+	// Position tracking
 	virtual size_t line() const override {
 		size_t line = 1;
 		for (size_t i = 0; i <= _index; i++)
 			line += (_source[i] == '\n');
 		return line;
+	}
+
+	// Get the current column
+	virtual size_t col() const override {
+		size_t col = 1;
+		for (size_t i = 0; i < _index; i++) {
+			if (_source[i] == '\n')
+				col = 1;
+			else
+				col++;
+		}
+		return col;
+	}
+
+	// Get a line
+	virtual std::string get_line(size_t line) const override {
+		std::string out;
+
+		size_t l = 1;
+		for (size_t i = 0; i < _source.size(); i++) {
+			if (_source[i] == '\n') {
+				if (++l > line)
+					break;
+			} else if (l == line) {
+				out += _source[i];
+			}
+		}
+
+		return out;
+	}
+
+	// Get location of source
+	virtual const std::string &source() const override {
+		return _loc;
 	}
 
 	// From file
@@ -391,14 +437,16 @@ public:
 			   std::istreambuf_iterator <char> ());
 
 		// Return the feeder
-		return StringFeeder(str);
+		return StringFeeder(str, filename);
 	}
 };
 
-// Class for reading command line arguments
-#define RESET "\033[0m"
-#define ERROR "\033[91m"
+// Color constants
+#define NABU_RESET_COLOR "\033[0m"
+#define NABU_BOLD_COLOR "\033[1m"
+#define NABU_ERROR_COLOR "\033[91;1m"
 
+// Class for reading command line arguments
 class ArgParser {
 public:
 	// Public aliases
@@ -471,16 +519,19 @@ private:
 			
 		// Check if option is not present
 		if (!_optn_present(arg)) {
-			fprintf(stderr, "%s: %serror:%s unknown option %s\n",
-				_name.c_str(), ERROR, RESET, arg.c_str());
+			fprintf(stderr, "%s%s: %serror:%s unknown option %s\n",
+				NABU_BOLD_COLOR, _name.c_str(), NABU_ERROR_COLOR,
+				NABU_RESET_COLOR, arg.c_str());
 			exit(-1);
 		}
 
 		// Handle arguments
 		if (_optn_arg(arg)) {
 			if ((++i) >= argc) {
-				fprintf(stderr, "%s: %serror:%s option %s need an argument\n",
-					_name.c_str(), ERROR, RESET, arg.c_str());
+				fprintf(stderr, "%s%s: %serror:%s option %s need an argument\n",
+					NABU_BOLD_COLOR, _name.c_str(),
+					NABU_ERROR_COLOR, NABU_RESET_COLOR,
+					arg.c_str());
 				exit(-1);
 			}
 			
@@ -586,9 +637,11 @@ public:
 
 		// Check number of positional args
 		if (_nargs > 0 && _pargs.size() < _nargs) {
-			fprintf(stderr, "%s: %serror:%s requires %d argument%c,"
-				" was only provided %lu\n", _name.c_str(),
-				ERROR, RESET, _nargs, 's' * (_nargs != 1),
+			fprintf(stderr, "%s%s: %serror:%s requires %d argument%c,"
+				" was only provided %lu\n",
+				NABU_BOLD_COLOR, _name.c_str(),
+				NABU_ERROR_COLOR, NABU_RESET_COLOR,
+				_nargs, 's' * (_nargs != 1),
 				_pargs.size());
 			exit(-1);
 		}
@@ -625,8 +678,9 @@ public:
 
 	// Print error as a command
 	int error(const std::string &str) const {
-		fprintf(stderr, "%s: %serror:%s %s\n", _name.c_str(), ERROR,
-			RESET, str.c_str());
+		fprintf(stderr, "%s%s: %serror:%s %s\n",
+			NABU_BOLD_COLOR, _name.c_str(), NABU_ERROR_COLOR,
+			NABU_RESET_COLOR, str.c_str());
 		return -1;
 	}
 

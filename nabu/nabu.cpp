@@ -1,5 +1,6 @@
-#include <iostream>
+#include <algorithm>
 #include <fstream>
+#include <iostream>
 
 #include "rules.hpp"
 
@@ -18,6 +19,56 @@ const char rules_str[] = "rules";
 const char nojson_str[] = "nojson";
 const char project_str[] = "project";
 
+// Replace tabs with spaces
+std::string replace_tabs(const std::string &str)
+{
+	std::string out;
+	for (size_t i = 0; i < str.size(); i++) {
+		if (str[i] == '\t')
+			out += std::string(8, ' ');
+		else
+			out += str[i];
+	}
+	return out;
+}
+
+// Process unresolved symbols
+void warn_unresolved(Feeder *fd)
+{
+	// TODO: feeder method to extract a single line
+	// TODO: in the warning also show curly chars under the symbol
+
+	// Transfer unresolved symbols to vector
+	std::vector <std::pair <std::string, int>> unresolved(
+		state.unresolved.begin(), state.unresolved.end()
+	);
+
+	// Sort the unresolved symbols by line number
+	std::sort(unresolved.begin(), unresolved.end(),
+		[](const std::pair <std::string, int> &a, const std::pair <std::string, int> &b) {
+			return a.second < b.second;
+		}
+	);
+
+	for (const auto &pr : unresolved) {
+		// Print warning
+		warn_no_col(fd->source(), pr.second, "rule \'%s\' is not defined"
+			" anywhere\n", pr.first.c_str());
+		
+		// Print location
+		std::string line = replace_tabs(fd->get_line(pr.second));
+
+		std::cout << "\t" << line << std::endl;
+
+		size_t pos = line.find(pr.first);
+		std::cout << "\t" << std::string(pos, ' ') << BOLD << "^"
+			<< std::string(pr.first.length() - 1, '~') << RESET << std::endl;
+	
+		// Increment warnings
+		state.warnings++;
+	}
+}
+
 // File writer
 int nabu_out(const std::string &file)
 {
@@ -29,6 +80,19 @@ int nabu_out(const std::string &file)
 	ret rptr = rule <statement_list> ::value(&sf);
 	if (state.print_json)
 		std::cout << getrv(rptr).json() << std::endl;
+	
+	// Generate warnings and errors
+	warn_unresolved(&sf);
+
+	// Summarize warnings and errors
+	if (state.errors)
+		printf("%lu error%c", state.errors, (state.errors) > 1 ? 's' : '\0');
+	if (state.warnings) {
+		printf("%s%lu warning%c", (state.errors ? ", and" : ""),
+			state.warnings, (state.warnings) > 1 ? 's' : '\0');
+	}
+	if (state.errors || state.warnings)
+		printf(" generated\n");
 
 	// Set main rule
 	if (state.no_main_rule) {

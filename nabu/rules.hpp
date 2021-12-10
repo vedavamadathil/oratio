@@ -3,6 +3,7 @@
 
 // Standard headers
 #include <iostream>
+#include <map>
 #include <set>
 
 // Nabu library headers
@@ -11,11 +12,22 @@
 // Local headers
 #include "common.hpp"
 
+// Color constants
+#define RESET "\033[0m"
+#define BOLD "\033[1m"
+#define WARNING "\033[93;1m"
+#define ERROR "\033[91;1m"
+
 // State singleton
 struct State {
+	// Set of rule tags
 	std::set <std::string>		tags;
-	std::vector <std::string>	code;
 
+	// Unresolved symbols (maps to line number)
+	std::map <std::string, size_t>	unresolved;
+
+	// Rule specialization code
+	std::vector <std::string>	code;
 
 	// Main rule and language name
 	//	by default, the main rule
@@ -24,12 +36,31 @@ struct State {
 	std::string			lang_name;
 	std::string			first_tag;
 
+	// Flags
 	bool				no_main_rule = false;
 	bool				no_json = false;
 	bool				print_json = false;
+
+	// Number of warnings and errors
+	size_t				warnings = 0;
+	size_t				errors = 0;
+	
+	// Add tag and unresolved
+	void push_symbol(const std::string &symbol, size_t line) {
+		tags.insert(symbol);
+		unresolved[symbol] = line;
+	}
+
+	// Attempt to resolve a symbol
+	void resolve_symbol(const std::string &symbol) {
+		if (tags.count(symbol))
+			unresolved.erase(symbol);
+	}
 };
 
 extern State state;
+
+// TODO: make these methods of the State struct
 
 // Adding to this set
 inline void add_tag(const std::string &tag)
@@ -51,6 +82,24 @@ inline void add_source(const std::string &source)
 	state.code.push_back(source);
 }
 
+// Print errors
+template <class ... Args>
+inline void error(nabu::Feeder *fd, const std::string &str, Args ... args)
+{
+	std::string fmt = "%s%s:%d:%d: %serror:%s " + str;
+	fprintf(stderr, fmt.c_str(), BOLD, fd->source().c_str(),
+		fd->line(), fd->col() - 1, ERROR, RESET, args...);
+	exit(-1);
+}
+
+template <class ... Args>
+inline void warn_no_col(const std::string &source, size_t line, const std::string &str, Args ... args)
+{
+	std::string fmt = "%s%s:%d: %swarning:%s " + str;
+	fprintf(stderr, fmt.c_str(), BOLD, source.c_str(),
+		line, WARNING, RESET, args...);
+}
+
 // Literals constants and rules
 extern const char walrus_str[];
 
@@ -66,9 +115,7 @@ struct equal_trap_statement {};
 template <> struct nabu::rule <equal_trap> : public rule <equals> {
 	static ret value(Feeder *fd) {
 		if (rule <equals> ::value(fd)) {
-			// TODO: a function to print errors
-			std::cout << "[LINE] Error: use := instead of =\n";
-			exit(-1);
+			error(fd, "%s", "use \':=\' instead of \'=\'\n");
 		}
 
 		return nullptr;
@@ -134,6 +181,12 @@ template <> struct nabu::rule <term> : public multirule <
 	> {
 
 	static ret value(Feeder *fd) {
+		// Its safe to get the line here because
+		//	the skippers will not consume any
+		//	newlines
+		size_t line = fd->line();
+
+		// Run the multirule
 		mt_ret mr = _value(fd);
 		if (mr.first < 0)
 			return nullptr;
@@ -167,7 +220,10 @@ template <> struct nabu::rule <term> : public multirule <
 		}
 
 		// Add rule to set
-		add_tag(rule_tag);
+		if (!rule_tag.empty())
+			state.push_symbol(rule_tag, line);
+		
+		// Return the constructed sub-expression
 		return ret(new Tret <std::string> (rule_expr));
 	}
 };
@@ -325,8 +381,12 @@ public:
 
 		// Add rule to set
 		add_source(rule_expr);
-		add_tag(rule_tag);
 		set_first(rule_tag);
+
+		// Resolve a symbol only if it is defined
+		state.push_symbol(rule_tag, -1);
+		state.resolve_symbol(rule_tag);
+
 		return rptr;
 	}
 };
