@@ -31,17 +31,6 @@ const char rules_str[] = "rules";
 const char nojson_str[] = "nojson";
 const char project_str[] = "project";
 
-// Sources
-StringFeeder sf = R"(
-@project xyzwlang
-@nojson
-@noentry
-
-sh_type := str
-	| int {}
-	| double
-)";
-
 // File writer
 int nabu_out(const std::string &file)
 {
