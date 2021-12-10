@@ -11,41 +11,45 @@
 // Local headers
 #include "common.hpp"
 
-// Set of rule tags
-extern std::set <std::string> tags;
+// State singleton
+struct State {
+	std::set <std::string>		tags;
+	std::vector <std::string>	code;
+
+
+	// Main rule and language name
+	//	by default, the main rule
+	//	is the first rule in the set
+	std::string			main_rule;
+	std::string			lang_name;
+	std::string			first_tag;
+
+	bool				no_main_rule = false;
+	bool				no_json = false;
+	bool				print_json = false;
+};
+
+extern State state;
 
 // Adding to this set
 inline void add_tag(const std::string &tag)
 {
 	if (!tag.empty())
-		tags.insert(tag);
+		state.tags.insert(tag);
 }
 
 // Set the first rule
-extern std::string first_tag;
-
 void set_first(const std::string &tag)
 {
-	if (first_tag.empty())
-		first_tag = tag;
+	if (state.first_tag.empty())
+		state.first_tag = tag;
 }
-
-// Sources
-extern std::vector <std::string> code;
 
 // Adding sources
 inline void add_source(const std::string &source)
 {
-	code.push_back(source);
+	state.code.push_back(source);
 }
-
-// Main rule and language name
-//	by default, the main rule
-//	is the first rule in the set
-extern std::string main_rule;
-extern std::string lang_name;
-extern bool no_main_rule;
-extern bool no_json;
 
 // Literals constants and rules
 extern const char walrus_str[];
@@ -121,9 +125,6 @@ template <> struct nabu::rule <term_plus> : public seqrule <skipper_no_nl <ident
 
 struct term {};
 
-// Rule tag prefix
-extern const char *prefix;
-
 template <> struct nabu::rule <term> : public multirule <
 		term_star,
 		term_plus,
@@ -142,16 +143,16 @@ template <> struct nabu::rule <term> : public multirule <
 
 		switch (mr.first) {
 		case 0:
-			rule_tag = prefix + get <std::string> (mr.second);
-			rule_expr = "kstar <" + lang_name + "::" + rule_tag + ">";
+			rule_tag = get <std::string> (mr.second);
+			rule_expr = "kstar <" + state.lang_name + "::" + rule_tag + ">";
 			break;
 		case 1:
-			rule_tag = prefix + get <std::string> (mr.second);
-			rule_expr = "kplus <" + lang_name + "::" + rule_tag + ">";
+			rule_tag = get <std::string> (mr.second);
+			rule_expr = "kplus <" + state.lang_name + "::" + rule_tag + ">";
 			break;
 		case 2:
-			rule_tag = prefix + get <std::string> (mr.second);
-			rule_expr = lang_name + "::" + rule_tag;
+			rule_tag = get <std::string> (mr.second);
+			rule_expr = state.lang_name + "::" + rule_tag;
 			break;
 		case 3:
 			rule_expr = std::string("lit <\'") + get <char> (mr.second) + "\'>";
@@ -252,7 +253,7 @@ template <> class nabu::rule <statement> : public seqrule <identifier, defined, 
 			ReturnVector crv = getrv(mr.second);
 			rule_expr = format(
 				sources::custom_expression,
-				lang_name + "::" + rule_tag,
+				state.lang_name + "::" + rule_tag,
 				get <std::string> (crv[0]),
 				get <std::string> (crv[1])
 			);
@@ -260,7 +261,7 @@ template <> class nabu::rule <statement> : public seqrule <identifier, defined, 
 			// Basic expression
 			rule_expr = format(
 				sources::basic_expression,
-				lang_name + "::" + rule_tag,
+				state.lang_name + "::" + rule_tag,
 				get <std::string> (mr.second)
 			);
 		}
@@ -287,7 +288,7 @@ public:
 		ReturnVector rvec = getrv(rptr);
 
 		// Get the rule tag
-		std::string rule_tag = prefix + get <std::string> (rvec[0]);
+		std::string rule_tag = get <std::string> (rvec[0]);
 
 		// Get the expression
 		mt_ret mr = get <mt_ret> (rvec[2]);
@@ -309,9 +310,10 @@ public:
 
 			// String the rule
 			rule_expr = "template <> struct nabu::rule <"
-				+ lang_name + "::" + rule_tag + "> : public multirule <";
+				+ state.lang_name + "::" + rule_tag + "> : public multirule <";
 			for (size_t i = 0; i < sub_rules.size(); i++) {
-				rule_expr += lang_name + "::" + rule_tag + "_optn_" + std::to_string(i);
+				rule_expr += state.lang_name + "::" + rule_tag
+					+ "_optn_" + std::to_string(i);
 				if (i < sub_rules.size() - 1)
 					rule_expr += ", ";
 			}
@@ -370,8 +372,8 @@ template <> struct nabu::rule <pre_entry> : public seqrule <
 			return nullptr;
 
 		ReturnVector rvec = getrv(rptr);
-		main_rule = get <std::string> (rvec[1]);
-		return ret(new Tret <std::string> ("@entry " + main_rule));
+		state.main_rule = get <std::string> (rvec[1]);
+		return ret(new Tret <std::string> ("@entry " + state.main_rule));
 	}
 };
 
@@ -381,7 +383,7 @@ template <> struct nabu::rule <pre_noentry> : public seqrule <pre_dir <noentry_s
 		if (!rptr)
 			return nullptr;
 
-		no_main_rule = true;
+		state.no_main_rule = true;
 		return ret(new Tret <std::string> ("@noentry"));
 	}
 };
@@ -421,7 +423,7 @@ template <> struct nabu::rule <pre_nojson> : public seqrule <pre_dir <nojson_str
 		if (!rptr)
 			return nullptr;
 
-		no_json = true;
+		state.no_json = true;
 		return ret(new Tret <std::string> ("@nojson"));
 	}
 };
@@ -437,8 +439,8 @@ template <> struct nabu::rule <pre_project> : public seqrule <
 			return nullptr;
 
 		ReturnVector rvec = getrv(rptr);
-		lang_name = get <std::string> (rvec[1]);
-		return ret(new Tret <std::string> ("@project " + lang_name));
+		state.lang_name = get <std::string> (rvec[1]);
+		return ret(new Tret <std::string> ("@project " + state.first_tag));
 	}
 };
 

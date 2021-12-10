@@ -6,21 +6,8 @@
 using namespace std;
 using namespace nabu;
 
-// All rule tags
-// TODO: put all this information into a struct
-set <std::string> tags;
-vector <std::string> code;
-
-string main_rule;
-string lang_name;
-string first_tag;
-
-bool no_main_rule = false;
-bool no_json = false;
-bool print_json = false;
-
-// Struct prefixes
-const char *prefix = "nbg_";
+// State singleton
+State state;
 
 // Literals constants and rules
 const char walrus_str[] = ":=";
@@ -40,17 +27,17 @@ int nabu_out(const std::string &file)
 
 	// Read the source
 	ret rptr = rule <statement_list> ::value(&sf);
-	if (print_json)
+	if (state.print_json)
 		std::cout << getrv(rptr).json() << std::endl;
 
 	// Set main rule
-	if (no_main_rule) {
-		main_rule = "";
+	if (state.no_main_rule) {
+		state.main_rule = "";
 		// TODO: need to check if source has main defined
 		fout.open(file + ".hpp");
 	} else {
-		if (main_rule.empty())
-			main_rule = first_tag;
+		if (state.main_rule.empty())
+			state.main_rule = state.first_tag;
 		fout.open(file + ".cpp");
 	}
 
@@ -61,27 +48,27 @@ int nabu_out(const std::string &file)
 	fout << "#include \"nabu.hpp\"\n\n";
 
 	// Begin namespace
-	if (!lang_name.empty())
-		fout << "namespace " << lang_name << " {\n";
+	if (!state.lang_name.empty())
+		fout << "namespace " << state.lang_name << " {\n";
 
 	// Output all rule tags
 	fout << sources::hrule_tag << std::endl;
-	for (auto &tag : tags)
+	for (auto &tag : state.tags)
 		fout << "struct " << tag << " {};\n";
 
 	// End namespace
-	if (!lang_name.empty())
+	if (!state.lang_name.empty())
 		fout << "\n}\n";
 
 	// Output all code
 	fout << sources::hrule << std::endl;
-	for (auto &line : code)
+	for (auto &line : state.code)
 		fout << line << endl;
 
 	// Main function
-	std::string main = lang_name + "::" + prefix + main_rule;
-	if (!main_rule.empty()) {
-		if (no_json)
+	std::string main = state.lang_name + "::" + state.main_rule;
+	if (!state.main_rule.empty()) {
+		if (state.no_json)
 			fout << format(sources::main_no_json, main) << endl;
 		else
 			fout << format(sources::main, main) << endl;
@@ -103,7 +90,7 @@ int main(int argc, char *argv[])
 	// Extract argument info
 	string filename = ap.get(0);
 	if (ap.get_optn <bool> ("-j"))
-		print_json = true;
+		state.print_json = true;
 
 	if (filename.substr(filename.size() - 5) != ".nabu")
 		return ap.error("file extension must be *.nabu");
