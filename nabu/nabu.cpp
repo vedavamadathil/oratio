@@ -131,6 +131,13 @@ int nabu_out(const std::string &file)
 	// End namespace
 	if (!state.lang_name.empty())
 		fout << "\n}\n";
+	
+	// Set names of the rules
+	fout << sources::hrule_name << std::endl;
+	for (auto &tag : state.tags) {
+		fout << "set_name(" << state.lang_name << "::"
+			<< tag << ", " << tag << ");\n";
+	}
 
 	// Output all code
 	fout << sources::hrule << std::endl;

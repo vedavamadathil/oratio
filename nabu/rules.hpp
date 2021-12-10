@@ -54,7 +54,8 @@ struct State {
 	// Add tag and unresolved
 	void push_symbol(const std::string &symbol, size_t line) {
 		tags.insert(symbol);
-		unresolved[symbol] = line;
+		if (tags.count(symbol) == 0)
+			unresolved[symbol] = line;
 	}
 
 	// Attempt to resolve a symbol
@@ -303,7 +304,7 @@ template <> struct nabu::rule <term> : public seqrule <
 
 	static ret value(Feeder *fd) {
 		// Run the rule
-		ret rptr = _value(fd);
+		ret rptr = _value(fd, false);
 		if (!rptr)
 			return nullptr;
 
@@ -331,7 +332,7 @@ template <> struct nabu::rule <term> : public seqrule <
 
 template <> struct nabu::rule <term_star> : public seqrule <skipper_no_nl <lit <'*'>>, term_prime> {
 	static ret value(Feeder *fd) {
-		ret rptr = _value(fd);
+		ret rptr = _value(fd, false);
 		if (rptr) {
 			ReturnVector rvec = getrv(rptr);
 			return rvec[0];
@@ -344,7 +345,7 @@ template <> struct nabu::rule <term_star> : public seqrule <skipper_no_nl <lit <
 // TODO: trap extra + or * for error (nested + or * makes no sense)
 template <> struct nabu::rule <term_plus> : public seqrule <skipper_no_nl <lit <'+'>>, term_prime> {
 	static ret value(Feeder *fd) {
-		ret rptr = _value(fd);
+		ret rptr = _value(fd, false);
 		if (rptr) {
 			ReturnVector rvec = getrv(rptr);
 			return rvec[0];
@@ -527,8 +528,11 @@ public:
 		set_first(rule_tag);
 
 		// Resolve a symbol only if it is defined
+		std::cout << "Defining statement: " << rule_tag << std::endl;
 		state.push_symbol(rule_tag, -1);
 		state.resolve_symbol(rule_tag);
+		for (const auto &str : state.unresolved)
+			std::cout << "\tunresolved: " << str.first << std::endl;
 
 		return rptr;
 	}

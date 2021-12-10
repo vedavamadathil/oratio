@@ -1,4 +1,5 @@
 @project xyzwlang
-@nojson
+@entry sh_main
 
-sh_type := word+
+sh_type := word
+sh_main := sh_type

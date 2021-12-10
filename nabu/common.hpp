@@ -90,7 +90,7 @@ int main(int argc, char *argv[])
 	nabu::StringFeeder sf = nabu::StringFeeder::from_file(argv[1]);
 
 	// Parse the file and print JSON
-	nabu::ret *rptr = nabu::kstar <@1> ::value(&sf);
+	nabu::ret rptr = nabu::kstar <@1> ::value(&sf);
 	std::cout << nabu::getrv(rptr).json() << std::endl;
 }
 )";
@@ -119,6 +119,12 @@ constexpr const char *hrule_tag = R"(
 //////////////////////////
 // Rule tag definitions //
 //////////////////////////
+)";
+
+constexpr const char *hrule_name = R"(
+/////////////////
+// Rule names //
+////////////////
 )";
 
 constexpr const char *hrule = R"(

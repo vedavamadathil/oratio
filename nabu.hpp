@@ -29,6 +29,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <stack>
 #include <string>
 #include <unordered_map>
@@ -859,11 +860,15 @@ struct rule {
 // Type to string converter
 template <class T>
 struct name {
-	static constexpr char value[] = "?";
+	// static constexpr char value[] = "?";
+	static const std::string value;
 };
 
+// template <class T>
+// constexpr char name <T> ::value[];
+
 template <class T>
-constexpr char name <T> ::value[];
+const std::string name <T> ::value = typeid(T()).name();
 
 // Setting grammar off
 template <class T>
@@ -1436,13 +1441,13 @@ template <>
 struct rule <word> {
 	static ret value(Feeder *fd) {
 		char n = fd->next();
-		if (!isspace(n)) {
+		if (!isspace(n) && n != EOF) {
 			std::string str;
 
 			str += n;
 			while (true) {
 				n = fd->next();
-				if (isspace(n)) {
+				if (isspace(n) || n == EOF) {
 					fd->noef(n);
 					break;
 				} else {
