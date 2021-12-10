@@ -103,6 +103,11 @@ int nabu_out(const std::string &file)
 
 int main(int argc, char *argv[])
 {
+	// TODO: use ArgParser instead
+	//	also use full constructor
+	//	to avoid using space here
+	//	to specify args
+
 	// Check number of arguments
 	if (argc < 2) {
 		fprintf(stderr, "Usage: %s [--json] <file.nabu>\n", argv[0]);
@@ -111,8 +116,7 @@ int main(int argc, char *argv[])
 
 	// Check file extension
 	string filename = argv[1];
-
-	// TODO: create class for parsing arguments
+	
 	if (filename == "--json"
 		|| filename == "-j") {
 		print_json = true;

@@ -3,10 +3,12 @@
 
 // Standard headers
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <stack>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace nabu {
@@ -370,7 +372,275 @@ public:
 	}
 };
 
-// TODO: class for reading argument (and then storing results into a map)
+// Class for reading command line arguments
+#define RESET "\033[0m"
+#define ERROR "\033[91m"
+
+class ArgParser {
+public:
+	// Public aliases
+	using Args = std::vector <std::string>;
+	using StringMap = std::unordered_map <std::string, std::string>;
+private:
+	// Set of all options
+	std::set <std::string>	_optns;
+
+	// TODO: mutliple args per option?
+	std::set <std::string>	_optn_args;
+
+	// Description for each option
+	StringMap		_descriptions;
+
+	// Map each option and its argument
+	//	empty means that its a boolean
+	//	based arg (present/not present)
+	StringMap		_matched_args;
+
+	// Positional arguments
+	Args			_pargs;
+
+	// Name of the command
+	std::string		_name;
+
+	// Number of required positional arguments
+	int			_nargs = -1;
+
+	// Helper methods
+	bool _optn_arg(const std::string &str) const {
+		return _optn_args.find(str) != _optn_args.end();
+	}
+
+	bool _optn_present(const std::string &str) const {
+		return _optns.find(str) != _optns.end();
+	}
+
+	bool _is_optn(const std::string &str) const {
+		if (str.empty())
+			return false;
+		
+		// The second hyphen is a redundant check
+		return (str[0] == '-');
+	}
+
+	void _parse_option(int argc, char *argv[],
+			const std::string &arg, int &i) {
+		// Check help first
+		if (arg == "-h" || arg == "--help") {
+			help();
+			exit(0);
+		}
+			
+		// Check if option is not present
+		if (!_optn_present(arg)) {
+			fprintf(stderr, "%s: %serror:%s unknown option %s\n",
+				_name.c_str(), ERROR, RESET, arg.c_str());
+			exit(-1);
+		}
+
+		// Handle arguments
+		if (_optn_arg(arg)) {
+			if ((++i) >= argc) {
+				fprintf(stderr, "%s: %serror:%s option %s need an argument\n",
+					_name.c_str(), ERROR, RESET, arg.c_str());
+				exit(-1);
+			}
+			
+			_matched_args[arg] = argv[i];
+		} else {
+			_matched_args[arg] = "";
+		}
+	}
+
+	// Convert string to value for methods
+	template <class T>
+	T _convert(const std::string &) const {
+		return T();
+	}
+public:
+	// TODO: help option automatically
+
+	// Number of required positional arguments
+	ArgParser(const std::string &name = "", int nargs = -1)
+			: _name(name), _nargs(nargs) {
+		add_optn("-h", "show this message");
+	}
+
+	// TODO: arg should be an int
+	// TODO: aliases
+	// TODO: option to provide argument name in help
+	void add_optn(const std::string &str, const std::string &descr = "",
+			bool arg = false) {
+		_optns.insert(str);
+		if (arg)
+			_optn_args.insert(str);
+		_descriptions[str] = descr;
+	}
+
+	void parse(int argc, char *argv[]) {
+		// Set name if empty
+		if (_name.empty())
+			_name = argv[0];
+
+		// Process the arguments
+		for (int i = 1; i < argc; i++) {
+			std::string arg = argv[i];
+			if (_is_optn(arg))
+				_parse_option(argc, argv, arg, i);
+			else
+				_pargs.push_back(arg);
+		}
+
+		// Check number of positional args
+		if (_nargs > 0 && _pargs.size() < _nargs) {
+			fprintf(stderr, "%s: %serror:%s requires %d argument%c,"
+				" was only provided %lu\n", _name.c_str(),
+				ERROR, RESET, _nargs, 's' * (_nargs != 1),
+				_pargs.size());
+			exit(-1);
+		}
+	}
+
+	const Args &pargs() const {
+		return _pargs;
+	}
+
+	// Print help
+	void help() {
+		// Print format of command
+		printf("usage: %s", _name.c_str());
+		for (const std::string &optn : _optns) {
+			printf(" [%s%s]", optn.c_str(),
+				_optn_arg(optn) ? " arg" : "");
+		}
+		printf("\n");
+
+		// Stop if no optional arguments
+		if (_optns.empty())
+			return;
+
+		// Print description
+		printf("\noptional arguments:\n");
+		for (const std::string &optn : _optns) {
+			printf("  %*s", 20, optn.c_str());
+
+			std::string descr = _descriptions[optn];
+			if (descr.empty())
+				printf(" [?]\n");
+			else
+				printf(" %s\n", descr.c_str());
+		}
+	}
+
+	// Retrieving positional arguments
+	template <class T = std::string>
+	inline T get(size_t i) const {
+		return _convert <T> (_pargs[i]);
+	}
+
+	// Retrieve optional arguments
+	template <class T = std::string>
+	inline T get_optn(const std::string &str) {
+		// Check if its a valid option
+		if (_optns.find(str) == _optns.end())
+			throw bad_option(str);
+
+		// Check if the option even takes arguments
+		if (!_optn_arg(str))
+			throw optn_no_args(str);
+		
+		// Check if the option value is null
+		if (_matched_args.find(str) == _matched_args.end())
+			throw optn_null_value(str);
+		
+		// Return the converted value
+		return _convert <T> (_matched_args[str]);
+	}
+
+	// For debugging
+	void dump() {
+		std::cout << "Positional arguments: ";
+		for (size_t i = 0; i < _pargs.size(); i++) {
+			std::cout << "\"" << _pargs[i] << "\"";
+			if (i + 1 < _pargs.size())
+				std::cout << ", ";
+		}
+		std::cout << std::endl;
+
+		for (const std::string &optn : _optns) {
+			std::cout << "\t" << std::left << std::setw(10)
+				<< optn << " ";
+			
+			if (_matched_args.find(optn) == _matched_args.end()) {
+				std::cout << "Null\n";
+			} else {
+				std::string value = _matched_args[optn];
+
+				std::cout << (value.empty() ? "Present" : value) << "\n";
+			}
+		}
+	}
+
+	// Thrown if not an option
+	class bad_option : public std::runtime_error {
+	public:
+		bad_option(const std::string &str) :
+			std::runtime_error("ArgParser: has no registered"
+				" option \"" + str + "\"") {}
+	};
+
+	// Thrown if the option does not take an argument
+	class optn_no_args : public std::runtime_error {
+	public:
+		optn_no_args(const std::string &str) :
+			std::runtime_error("ArgParser: option \"" +
+				str + "\" does not take arguments") {}
+	};
+
+	// Thrown if the option is null
+	class optn_null_value : public std::runtime_error {
+	public:
+		optn_null_value(const std::string &str) :
+			std::runtime_error("ArgParser: option \"" +
+				str + "\" has null value (not specified)") {}
+	};
+};
+
+template <>
+inline std::string ArgParser::_convert <std::string> (const std::string &str) const {
+	return str;
+}
+
+// Integral types
+template <>
+inline long long int ArgParser::_convert <long long int> (const std::string &str) const {
+	return std::stoll(str);
+}
+
+template <>
+inline long int ArgParser::_convert <long int> (const std::string &str) const {
+	return _convert <long long int> (str);
+}
+
+template <>
+inline int ArgParser::_convert <int> (const std::string &str) const {
+	return _convert <long long int> (str);
+}
+
+// Floating types
+template <>
+inline long double ArgParser::_convert <long double> (const std::string &str) const {
+	return std::stold(str);
+}
+
+template <>
+inline double ArgParser::_convert <double> (const std::string &str) const {
+	return _convert <long double> (str);
+}
+
+template <>
+inline float ArgParser::_convert <float> (const std::string &str) const {
+	return _convert <long double> (str);
+}
 
 // Rule structures
 // TODO: docs -> always backup the tokens/characters if unsuccessful
