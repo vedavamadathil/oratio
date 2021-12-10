@@ -12,6 +12,13 @@ State state;
 
 // Literals constants and rules
 const char walrus_str[] = ":=";
+
+// Predefined rules
+const char int_str[] = "int";
+const char double_str[] = "double";
+const char identifier_str[] = "identifier";
+
+// Macros
 const char entry_str[] = "entry";
 const char noentry_str[] = "noentry";
 const char source_str[] = "source";

@@ -6,6 +6,9 @@
 #include <map>
 #include <set>
 
+// Debugging nabu rules
+// #define NABU_DEBUG_RULES
+
 // Nabu library headers
 #include "nabu.hpp"
 
@@ -103,6 +106,12 @@ inline void warn_no_col(const std::string &source, size_t line, const std::strin
 // Literals constants and rules
 extern const char walrus_str[];
 
+// Predefined rules
+extern const char int_str[];
+extern const char double_str[];
+extern const char identifier_str[];
+
+// Using declarations
 using lbrace = nabu::space_lit <'{'>;
 using option = nabu::space_lit <'|'>;
 using equals = nabu::space_lit <'='>;
@@ -146,6 +155,132 @@ template <> struct nabu::rule <custom_enclosure> : public seqrule <lbrace, delim
 struct term_star {};
 struct term_plus {};
 
+// Predefined rules
+#define mk_predefined(name)				\
+	struct name##_rule {};				\
+							\
+	template <> struct nabu::rule <name##_rule>	\
+		: public rule <str <name##_str>> {};
+
+mk_predefined(int);
+mk_predefined(double);
+mk_predefined(identifier);
+
+// Overarching rule for predefined
+struct predefined {};
+
+template <> struct nabu::rule <predefined> : public multirule <
+		int_rule,
+		double_rule,
+		identifier_rule
+	> {
+
+	// Index constants
+	enum {
+		INT_RULE,
+		DOUBLE_RULE,
+		IDENTIFIER_RULE
+	};
+	
+	// Return the corresponding nabu rule
+	static ret value(Feeder *fd) {
+		// Run the multirule
+		mt_ret mr = _value(fd);
+		if (mr.first < 0)
+			return nullptr;
+		
+		// Macros for cases and returns?
+		switch (mr.first) {
+		case INT_RULE:
+			return ret(new Tret <std::string> ("int"));
+		case DOUBLE_RULE:
+			return ret(new Tret <std::string> ("double"));
+		case IDENTIFIER_RULE:
+			return ret(new Tret <std::string> ("nabu::identifier"));
+		default:
+			break;
+		}
+
+		// TODO: should have a fatal error
+		return nullptr;
+	}
+};
+
+// General term
+struct term {};
+
+// TODO: term star and term plus using right recursion (convert from left)
+template <> struct nabu::rule <term> : public multirule <
+		term_star,
+		term_plus,
+		skipper_no_nl <predefined>,
+		skipper_no_nl <identifier>,
+		skipper_no_nl <cchar>,
+		skipper_no_nl <cstr>
+	> {
+
+	// Index constants
+	enum {
+		TERM_STAR,
+		TERM_PLUS,
+		PREDEFINED,
+		IDENTIFIER,
+		C_CHAR,
+		C_STR
+	};
+
+	static ret value(Feeder *fd) {
+		// Its safe to get the line here because
+		//	the skippers will not consume any
+		//	newlines
+		size_t line = fd->line();
+
+		// Run the multirule
+		mt_ret mr = _value(fd);
+		if (mr.first < 0)
+			return nullptr;
+
+		std::string rule_tag;	// Tag
+		std::string rule_expr;	// Actual rule
+
+		// TODO: enum for cases
+		switch (mr.first) {
+		case TERM_STAR:
+			rule_tag = get <std::string> (mr.second);
+			rule_expr = "kstar <" + state.lang_name + "::" + rule_tag + ">";
+			break;
+		case TERM_PLUS:
+			rule_tag = get <std::string> (mr.second);
+			rule_expr = "kplus <" + state.lang_name + "::" + rule_tag + ">";
+			break;
+		case PREDEFINED:
+			rule_expr = get <std::string> (mr.second);
+			break;
+		case IDENTIFIER:
+			rule_tag = get <std::string> (mr.second);
+			rule_expr = state.lang_name + "::" + rule_tag;
+			break;
+		case C_CHAR:
+			rule_expr = std::string("lit <\'") + get <char> (mr.second) + "\'>";
+			break;
+		case C_STR:
+			// TODO: deal with static const char[] caveat
+			rule_expr = "str <\"" + get <std::string> (mr.second) + "\">";
+			break;
+		default:
+			// Throw internal error
+			break;
+		}
+
+		// Add rule to set
+		if (!rule_tag.empty())
+			state.push_symbol(rule_tag, line);
+		
+		// Return the constructed sub-expression
+		return ret(new Tret <std::string> (rule_expr));
+	}
+};
+
 template <> struct nabu::rule <term_star> : public seqrule <skipper_no_nl <identifier>, lit <'*'>> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd);
@@ -167,64 +302,6 @@ template <> struct nabu::rule <term_plus> : public seqrule <skipper_no_nl <ident
 		}
 
 		return nullptr;
-	}
-};
-
-struct term {};
-
-template <> struct nabu::rule <term> : public multirule <
-		term_star,
-		term_plus,
-		skipper_no_nl <identifier>,
-		skipper_no_nl <cchar>,
-		skipper_no_nl <cstr>
-	> {
-
-	static ret value(Feeder *fd) {
-		// Its safe to get the line here because
-		//	the skippers will not consume any
-		//	newlines
-		size_t line = fd->line();
-
-		// Run the multirule
-		mt_ret mr = _value(fd);
-		if (mr.first < 0)
-			return nullptr;
-
-		std::string rule_tag;	// Tag
-		std::string rule_expr;	// Actual rule
-
-		switch (mr.first) {
-		case 0:
-			rule_tag = get <std::string> (mr.second);
-			rule_expr = "kstar <" + state.lang_name + "::" + rule_tag + ">";
-			break;
-		case 1:
-			rule_tag = get <std::string> (mr.second);
-			rule_expr = "kplus <" + state.lang_name + "::" + rule_tag + ">";
-			break;
-		case 2:
-			rule_tag = get <std::string> (mr.second);
-			rule_expr = state.lang_name + "::" + rule_tag;
-			break;
-		case 3:
-			rule_expr = std::string("lit <\'") + get <char> (mr.second) + "\'>";
-			break;
-		case 4:
-			// TODO: deal with static const char[] caveat
-			rule_expr = "str <\"" + get <std::string> (mr.second) + "\">";
-			break;
-		default:
-			// Throw internal error
-			break;
-		}
-
-		// Add rule to set
-		if (!rule_tag.empty())
-			state.push_symbol(rule_tag, line);
-		
-		// Return the constructed sub-expression
-		return ret(new Tret <std::string> (rule_expr));
 	}
 };
 

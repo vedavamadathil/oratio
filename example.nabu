@@ -2,6 +2,6 @@
 @nojson
 @noentry
 
-sh_type := str
+sh_type := str+ "my str"
 	| int {}
-	| double
+	| double ident*

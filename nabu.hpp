@@ -306,7 +306,8 @@ public:
 
 	// Skips white space
 	void skip_space() {
-		// std::cout << "\tSKIP SPACE [" << (int) getc() << " vs. EOF = " << EOF << "] line = " << line() << std::endl;
+		if (!isspace(getc()))
+			return;
 
 		// Loop until whitespace
 		while (isspace(next()));
@@ -314,8 +315,6 @@ public:
 		// Move back
 		if (getc() != EOF)
 			move(-1);
-
-		// std::cout << "\t\tENDED [" << (int) getc() << "]\n";
 	}
 
 	// Skip white space without newline
@@ -360,7 +359,6 @@ public:
         void move(int step) override {
 		// Increment and check bounds
 		_index += step;
-		// _done = (_index >= _source.size());
 
 		// Cap the index
 		_index = std::min((int) _source.size(), std::max(0, _index));
@@ -1062,7 +1060,7 @@ struct seqrule <T> {
 		return nullptr;
 	}
 
-	static bool _process(Feeder *fd, std::vector <ret > &sret, bool skip) {
+	static bool _process(Feeder *fd, std::vector <ret> &sret, bool skip) {
 		if (skip)
 			fd->skip_space();
 
@@ -1097,7 +1095,7 @@ struct seqrule <T, U...> {
 		return nullptr;
 	}
 
-	static bool _process(Feeder *fd, std::vector <ret > &sret, bool skip) {
+	static bool _process(Feeder *fd, std::vector <ret> &sret, bool skip) {
 		if (skip)
 			fd->skip_space();
 
@@ -1127,7 +1125,7 @@ protected:
 template <class T>
 struct kstar {
 	static ret value(Feeder *fd) {
-		std::vector <ret > rets;
+		std::vector <ret> rets;
 		ret rptr;
 		while ((rptr = grammar <T> ::value(fd)))
 			rets.push_back(rptr);
@@ -1143,7 +1141,7 @@ protected:
 template <class T>
 struct kplus {
 	static ret value(Feeder *fd) {
-		std::vector <ret > rets;
+		std::vector <ret> rets;
 		ret rptr;
 		while ((rptr = grammar <T> ::value(fd)))
 			rets.push_back(rptr);
@@ -1157,6 +1155,9 @@ protected:
 		return value(fd);
 	}
 };
+
+// Empty rule
+struct epsilon {};
 
 // Generic space skipper wrapper
 template <class T>
@@ -1208,6 +1209,15 @@ struct name <skipper <T>> {
 template <class T>
 const std::string name <skipper <T>> ::value = "skipper <" + std::string(name <T> ::value) + ">";
 
+// Skipper no newline
+template <class T>
+struct name <skipper_no_nl <T>> {
+	static const std::string value;
+};
+
+template <class T>
+const std::string name <skipper_no_nl <T>> ::value = "skipper_no_nl <" + std::string(name <T> ::value) + ">";
+
 // Literary characters
 template <char c>
 struct name <lit <c>> {
@@ -1248,12 +1258,19 @@ const std::string name <delim_str <c>> ::value = std::string("delim_str <\'") + 
 // Rule structure specializations //
 ////////////////////////////////////
 
+// Empty rule
+template <>
+struct rule <epsilon> {
+	static ret value(Feeder *fd) {
+		return ret(new Tret <std::string> ("ε"));
+	}
+};
+
 // Whitespace skippter
 template <class T>
 struct rule <skipper <T>> {
 	static ret value(Feeder *fd) {
 		fd->skip_space();
-		// std::cout << "\tSKIPPER(" << typeid(T()).name() << "): ended on \'" << fd->getc() << "\'\n";
 		return grammar <T> ::value(fd);
 	}
 };
@@ -1263,7 +1280,6 @@ template <class T>
 struct rule <skipper_no_nl <T>> {
 	static ret value(Feeder *fd) {
 		fd->skip_space_no_nl();
-		// std::cout << "\tSKIPPER NO NL: ended on \'" << fd->getc() << "\'\n";
 		return grammar <T> ::value(fd);
 	}
 };
@@ -1459,7 +1475,7 @@ struct rule <identifier> {
 					break;
 				}
 			}
-
+			
 			return ret(new Tret <std::string> (str));
 		}
 
