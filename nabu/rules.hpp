@@ -21,6 +21,9 @@
 #define WARNING "\033[93;1m"
 #define ERROR "\033[91;1m"
 
+// TODO: automate conversion from left recursion
+// to right recursion, and give a NOTE
+
 // State singleton
 struct State {
 	// Set of rule tags
@@ -110,6 +113,7 @@ extern const char walrus_str[];
 extern const char int_str[];
 extern const char double_str[];
 extern const char identifier_str[];
+extern const char word_str[];
 
 // Using declarations
 using lbrace = nabu::space_lit <'{'>;
@@ -165,6 +169,7 @@ struct term_plus {};
 mk_predefined(int);
 mk_predefined(double);
 mk_predefined(identifier);
+mk_predefined(word);
 
 // Overarching rule for predefined
 struct predefined {};
@@ -172,14 +177,16 @@ struct predefined {};
 template <> struct nabu::rule <predefined> : public multirule <
 		int_rule,
 		double_rule,
-		identifier_rule
+		identifier_rule,
+		word_rule
 	> {
 
 	// Index constants
 	enum {
 		INT_RULE,
 		DOUBLE_RULE,
-		IDENTIFIER_RULE
+		IDENTIFIER_RULE,
+		WORD_RULE
 	};
 	
 	// Return the corresponding nabu rule
@@ -197,6 +204,8 @@ template <> struct nabu::rule <predefined> : public multirule <
 			return ret(new Tret <std::string> ("double"));
 		case IDENTIFIER_RULE:
 			return ret(new Tret <std::string> ("nabu::identifier"));
+		case WORD_RULE:
+			return ret(new Tret <std::string> ("nabu::word"));
 		default:
 			break;
 		}
@@ -206,13 +215,10 @@ template <> struct nabu::rule <predefined> : public multirule <
 	}
 };
 
-// General term
-struct term {};
+// Singlet term
+struct term_singlet {};
 
-// TODO: term star and term plus using right recursion (convert from left)
-template <> struct nabu::rule <term> : public multirule <
-		term_star,
-		term_plus,
+template <> struct nabu::rule <term_singlet> : public multirule <
 		skipper_no_nl <predefined>,
 		skipper_no_nl <identifier>,
 		skipper_no_nl <cchar>,
@@ -221,8 +227,6 @@ template <> struct nabu::rule <term> : public multirule <
 
 	// Index constants
 	enum {
-		TERM_STAR,
-		TERM_PLUS,
 		PREDEFINED,
 		IDENTIFIER,
 		C_CHAR,
@@ -245,14 +249,6 @@ template <> struct nabu::rule <term> : public multirule <
 
 		// TODO: enum for cases
 		switch (mr.first) {
-		case TERM_STAR:
-			rule_tag = get <std::string> (mr.second);
-			rule_expr = "kstar <" + state.lang_name + "::" + rule_tag + ">";
-			break;
-		case TERM_PLUS:
-			rule_tag = get <std::string> (mr.second);
-			rule_expr = "kplus <" + state.lang_name + "::" + rule_tag + ">";
-			break;
 		case PREDEFINED:
 			rule_expr = get <std::string> (mr.second);
 			break;
@@ -281,7 +277,59 @@ template <> struct nabu::rule <term> : public multirule <
 	}
 };
 
-template <> struct nabu::rule <term_star> : public seqrule <skipper_no_nl <identifier>, lit <'*'>> {
+// General term
+struct term {};
+struct term_prime {};
+
+// TODO: term star and term plus using right recursion (convert from left)
+template <> struct nabu::rule <term> : public seqrule <
+		term_singlet,
+		term_prime
+	> {
+	
+	// Index constants
+	enum {
+		KSTAR,
+		KPLUS,
+		EPSILON
+	};
+
+	enum {
+		PREDEFINED,
+		IDENTIFIER,
+		C_CHAR,
+		C_STR
+	};
+
+	static ret value(Feeder *fd) {
+		// Run the rule
+		ret rptr = _value(fd);
+		if (!rptr)
+			return nullptr;
+
+		// Convert to ReturnVector
+		ReturnVector rvec = getrv(rptr);
+
+		// Check kstar or kplus
+		std::string rule_expr = get <std::string> (rvec[0]);
+
+		switch (get <int> (rvec[1])) {
+		case KSTAR:
+			rule_expr = "kstar <" + rule_expr + ">";
+			break;
+		case KPLUS:
+			rule_expr = "kplus <" + rule_expr + ">";
+			break;
+		default:
+			break;
+		}
+		
+		// Return the constructed sub-expression
+		return ret(new Tret <std::string> (rule_expr));
+	}
+};
+
+template <> struct nabu::rule <term_star> : public seqrule <skipper_no_nl <lit <'*'>>, term_prime> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd);
 		if (rptr) {
@@ -293,7 +341,8 @@ template <> struct nabu::rule <term_star> : public seqrule <skipper_no_nl <ident
 	}
 };
 
-template <> struct nabu::rule <term_plus> : public seqrule <skipper_no_nl <identifier>, lit <'+'>> {
+// TODO: trap extra + or * for error (nested + or * makes no sense)
+template <> struct nabu::rule <term_plus> : public seqrule <skipper_no_nl <lit <'+'>>, term_prime> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd);
 		if (rptr) {
@@ -302,6 +351,23 @@ template <> struct nabu::rule <term_plus> : public seqrule <skipper_no_nl <ident
 		}
 
 		return nullptr;
+	}
+};
+
+// Rule to prevent left recursion
+template <> struct nabu::rule <term_prime> : public multirule <
+		term_star,
+		term_plus,
+		nabu::epsilon
+	> {
+
+	// Return only the index
+	static ret value(Feeder *fd) {
+		// Run the multirule
+		mt_ret mr = _value(fd);
+		if (mr.first < 0)
+			return nullptr;
+		return ret(new Tret <int> (mr.first));
 	}
 };
 
@@ -609,6 +675,12 @@ struct statement_list {};
 template <> struct nabu::rule <statement_list> : public kstar <skipper <unit>> {};
 
 // Set names
+set_name(int_rule, int_rule);
+set_name(double_rule, double_rule);
+set_name(identifier_rule, identifier_rule);
+set_name(word_rule, word_rule);
+set_name(predefined, predefined);
+
 set_name(term_star, term_star);
 set_name(term_plus, term_plus);
 

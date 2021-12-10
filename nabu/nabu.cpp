@@ -17,6 +17,7 @@ const char walrus_str[] = ":=";
 const char int_str[] = "int";
 const char double_str[] = "double";
 const char identifier_str[] = "identifier";
+const char word_str[] = "word";
 
 // Macros
 const char entry_str[] = "entry";

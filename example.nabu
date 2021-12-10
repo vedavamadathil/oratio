@@ -1,7 +1,4 @@
 @project xyzwlang
 @nojson
-@noentry
 
-sh_type := str+ "my str"
-	| int {}
-	| double ident*
+sh_type := word+
