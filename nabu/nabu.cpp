@@ -101,45 +101,28 @@ int nabu_out(const std::string &file)
 	return 0;
 }
 
+// Argument parser
+static ArgParser ap("nabu", 1, {
+	ArgParser::Option(ArgParser::Args {"-j", "--json"}, "Print JSON output")
+});
+
 int main(int argc, char *argv[])
 {
-	// TODO: use ArgParser instead
-	//	also use full constructor
-	//	to avoid using space here
-	//	to specify args
+	// Parse arguments
+	ap.parse(argc, argv);
 
-	// Check number of arguments
-	if (argc < 2) {
-		fprintf(stderr, "Usage: %s [--json] <file.nabu>\n", argv[0]);
-		return 1;
-	}
-
-	// Check file extension
-	string filename = argv[1];
-	
-	if (filename == "--json"
-		|| filename == "-j") {
+	// Extract argument info
+	string filename = ap.get(0);
+	if (ap.get_optn <bool> ("-j"))
 		print_json = true;
 
-		if (argc < 3) {
-			fprintf(stderr, "Usage: %s [--json] <file.nabu>\n", argv[0]);
-			return 1;
-		}
-
-		filename = argv[2];
-	}
-
-	if (filename.substr(filename.size() - 5) != ".nabu") {
-		fprintf(stderr, "Error: file extension must be *.nabu\n");
-		return 1;
-	}
+	if (filename.substr(filename.size() - 5) != ".nabu")
+		return ap.error("file extension must be *.nabu");
 
 	// Check that file exists
 	ifstream fin(filename);
-	if (!fin.is_open()) {
-		fprintf(stderr, "Error: file %s does not exist\n", filename.c_str());
-		return 1;
-	}
+	if (!fin.is_open())
+		return ap.error("file " + filename + " does not exist");
 
 	// Run
 	return nabu_out(filename);

@@ -381,12 +381,20 @@ public:
 	// Public aliases
 	using Args = std::vector <std::string>;
 	using StringMap = std::unordered_map <std::string, std::string>;
+	using ArgsMap = std::unordered_map <std::string, Args *>;
 private:
 	// Set of all options
 	std::set <std::string>	_optns;
 
-	// TODO: mutliple args per option?
+	// Does the option take an argument?
 	std::set <std::string>	_optn_args;
+
+	// List of all aliases
+	std::vector <Args>	_aliases;
+
+	// Map options to aliases
+	//	nullptr if no alias
+	ArgsMap			_alias_map;
 
 	// Description for each option
 	StringMap		_descriptions;
@@ -422,6 +430,14 @@ private:
 		return (str[0] == '-');
 	}
 
+	// Set value of option (and aliases)
+	void _set_optn(const std::string &str, const std::string &val) {
+		// Set the aliases
+		for (const auto &alias : *(_alias_map[str]))
+			_matched_args[alias] = val;
+	}
+
+	// Parse options
 	void _parse_option(int argc, char *argv[],
 			const std::string &arg, int &i) {
 		// Check help first
@@ -445,9 +461,9 @@ private:
 				exit(-1);
 			}
 			
-			_matched_args[arg] = argv[i];
+			_set_optn(arg, argv[i]);
 		} else {
-			_matched_args[arg] = "";
+			_set_optn(arg, "");
 		}
 	}
 
@@ -457,23 +473,78 @@ private:
 		return T();
 	}
 public:
-	// TODO: help option automatically
+	// Option struct
+
+	// TODO: option to provide argument name in help
+	struct Option {
+		Args		aliases;
+		std::string	descr;
+		bool		arg;
+
+		// Constructor
+		Option(const std::string &str, const std::string &descr = "",
+			bool arg = false) : aliases {str}, descr(descr), arg(arg) {}
+		
+		Option(const Args &aliases, const std::string &descr = "",
+			bool arg = false) : aliases(aliases), descr(descr), arg(arg) {}
+	};
 
 	// Number of required positional arguments
 	ArgParser(const std::string &name = "", int nargs = -1)
 			: _name(name), _nargs(nargs) {
-		add_optn("-h", "show this message");
+		add_optn(Args {"-h", "--help"}, "show this message");
 	}
 
-	// TODO: arg should be an int
-	// TODO: aliases
-	// TODO: option to provide argument name in help
+	// Full constructor, with all options
+	ArgParser(const std::string &name, int nargs,
+			const std::vector <Option> &opts) : ArgParser(name, nargs) {
+		for (const auto &opt : opts)
+			add_optn(opt.aliases, opt.descr, opt.arg);
+	}
+
+	// Add an option
 	void add_optn(const std::string &str, const std::string &descr = "",
 			bool arg = false) {
+		// Add the option
 		_optns.insert(str);
+
+		// Add option to those which take an argument
 		if (arg)
 			_optn_args.insert(str);
+		
+		// Add the description
 		_descriptions[str] = descr;
+
+		// Add the alias
+		_aliases.push_back(Args {str});
+
+		// Alias map to nullptr
+		_alias_map[str] = &_aliases[_aliases.size() - 1];
+	}
+
+	// Add an option with aliases
+	void add_optn(const Args &args, const std::string &descr = "",
+			bool arg = false) {
+		// Add the options
+		for (const auto &arg : args)
+			_optns.insert(arg);
+		
+		// Add option to those which take an argument
+		if (arg) {
+			for (const auto &arg : args)
+				_optn_args.insert(arg);
+		}
+
+		// Add the descriptions
+		for (const auto &arg : args)
+			_descriptions[arg] = descr;
+		
+		// Add the aliases
+		_aliases.push_back(args);
+
+		// Add to the alias map
+		for (const auto &arg : args)
+			_alias_map[arg] = &_aliases[_aliases.size() - 1];
 	}
 
 	void parse(int argc, char *argv[]) {
@@ -504,33 +575,6 @@ public:
 		return _pargs;
 	}
 
-	// Print help
-	void help() {
-		// Print format of command
-		printf("usage: %s", _name.c_str());
-		for (const std::string &optn : _optns) {
-			printf(" [%s%s]", optn.c_str(),
-				_optn_arg(optn) ? " arg" : "");
-		}
-		printf("\n");
-
-		// Stop if no optional arguments
-		if (_optns.empty())
-			return;
-
-		// Print description
-		printf("\noptional arguments:\n");
-		for (const std::string &optn : _optns) {
-			printf("  %*s", 20, optn.c_str());
-
-			std::string descr = _descriptions[optn];
-			if (descr.empty())
-				printf(" [?]\n");
-			else
-				printf(" %s\n", descr.c_str());
-		}
-	}
-
 	// Retrieving positional arguments
 	template <class T = std::string>
 	inline T get(size_t i) const {
@@ -556,6 +600,50 @@ public:
 		return _convert <T> (_matched_args[str]);
 	}
 
+	// Print error as a command
+	int error(const std::string &str) const {
+		fprintf(stderr, "%s: %serror:%s %s\n", _name.c_str(), ERROR,
+			RESET, str.c_str());
+		return -1;
+	}
+
+	// Print help
+	void help() {
+		// Print format of command
+		printf("usage: %s", _name.c_str());
+		for (const Args &aliases : _aliases) {
+			// Just use the first alias
+			std::string optn = aliases[0];
+			printf(" [%s%s]", optn.c_str(),
+				_optn_arg(optn) ? " arg" : "");
+		}
+		printf("\n");
+
+		// Stop if no optional arguments
+		if (_optns.empty())
+			return;
+
+		// Print description
+		printf("\noptional arguments:\n");
+		for (const Args &alias : _aliases) {
+			std::string combined;
+			for (size_t i = 0; i < alias.size(); i++) {
+				combined += alias[i];
+
+				if (i != alias.size() - 1)
+					combined += ", ";
+			}
+
+			printf("  %*s", 20, combined.c_str());
+
+			std::string descr = _descriptions[alias[0]];
+			if (descr.empty())
+				printf(" [?]\n");
+			else
+				printf(" %s\n", descr.c_str());
+		}
+	}
+
 	// For debugging
 	void dump() {
 		std::cout << "Positional arguments: ";
@@ -566,10 +654,19 @@ public:
 		}
 		std::cout << std::endl;
 
-		for (const std::string &optn : _optns) {
-			std::cout << "\t" << std::left << std::setw(10)
-				<< optn << " ";
+		for (const Args &alias : _aliases) {
+			std::string combined;
+			for (size_t i = 0; i < alias.size(); i++) {
+				combined += alias[i];
+
+				if (i != alias.size() - 1)
+					combined += ", ";
+			}
+
+			std::cout << "\t" << std::left << std::setw(20)
+				<< combined << " ";
 			
+			std::string optn = alias[0];
 			if (_matched_args.find(optn) == _matched_args.end()) {
 				std::cout << "Null\n";
 			} else {
@@ -642,6 +739,39 @@ inline float ArgParser::_convert <float> (const std::string &str) const {
 	return _convert <long double> (str);
 }
 
+// Boolean conversion
+template <>
+inline bool ArgParser::_convert <bool> (const std::string &str) const {
+	return str == "true" || str == "1";
+}
+
+// Get option for booleans
+//	special case because options that take no
+//	arguments are true or false depending on
+//	whether the option is present or not
+template <>
+inline bool ArgParser::get_optn <bool> (const std::string &str) {
+	// Check if its a valid option
+	if (_optns.find(str) == _optns.end())
+		throw bad_option(str);
+	
+	// If its empty and no argument, return true
+	if (!_optn_arg(str)) {
+		if (_matched_args.find(str) == _matched_args.end())
+			return false;
+		if (_matched_args[str].empty())
+			return true;
+		throw optn_no_args(str);	
+	}
+	
+	// Check if the option value is null
+	if (_matched_args.find(str) == _matched_args.end())
+		throw optn_null_value(str);
+	
+	// Return the converted value
+	return _convert <bool> (_matched_args[str]);
+}
+
 // Rule structures
 // TODO: docs -> always backup the tokens/characters if unsuccessful
 template <class T>
@@ -659,15 +789,6 @@ struct name {
 
 template <class T>
 constexpr char name <T> ::value[];
-
-// Macro for the above
-#define set_name(T, str)				\
-	template <>					\
-	struct nabu::name <T> {				\
-		static constexpr char value[] = #str;	\
-	};						\
-							\
-	constexpr char nabu::name <T> ::value[];
 
 // Setting grammar off
 template <class T>
@@ -1000,12 +1121,6 @@ struct alnum {};
 struct dot {};
 struct comma {};
 struct equals {};
-
-// Set names
-set_name(word, word);
-set_name(identifier, identifier);
-set_name(cstr, cstr);
-set_name(cchar, cchar);
 
 // For templates
 template <class T>
@@ -1453,5 +1568,20 @@ template_type_rule(float_rule, double);
 template_type_rule(float_rule, long double);
 
 }
+
+// Macro for name generation
+#define set_name(T, str)				\
+	template <>					\
+	struct nabu::name <T> {				\
+		static constexpr char value[] = #str;	\
+	};						\
+							\
+	constexpr char nabu::name <T> ::value[];
+
+// Set names
+set_name(nabu::word, word);
+set_name(nabu::identifier, identifier);
+set_name(nabu::cstr, cstr);
+set_name(nabu::cchar, cchar);
 
 #endif

@@ -1,7 +1,10 @@
+default_compiler: clang++
+
 builds:
   - nabu_release:
     - sources: nabu/nabu.cpp
     - idirs: .
+    - flags: '-std=c++11'
   - nabu_debug:
     - sources: nabu/nabu.cpp
     - idirs: .
@@ -17,7 +20,7 @@ targets:
       - valgrind: nabu_debug
       - leaks: nabu_debug
     - postbuilds:
-      - default: '{} example.nabu -j 10.24'
+      - default: '{} example.nabu --json'
       - gdb: 'gdb {}'
       - lldb: 'lldb {}'
       - valgrind: 'valgrind --leak-check=full --show-leak-kinds=all -- {} example.nabu'
