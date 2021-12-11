@@ -131,7 +131,10 @@ public:
 		return _rets.end();
 	}
 
-	// TODO: add pushback at some point
+	// Inserting
+	void push_back(ret rptr) {
+		_rets.push_back(rptr);
+	}
 
 	// As a boolean, returns non-empty
 	explicit operator bool() const {
@@ -984,7 +987,7 @@ using mt_ret = std::pair <int, ret >;
 template <>
 std::string Tret <mt_ret> ::str() const
 {
-	return "<" + std::to_string(value.first) + "," + value.second->str() + ">";
+	return "<" + std::to_string(value.first) + ", " + value.second->str() + ">";
 }
 
 // Multirule (simultaneous) template

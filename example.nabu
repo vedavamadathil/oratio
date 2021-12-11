@@ -1,5 +1,9 @@
 @project xyzwlang
 @entry sh_main
 
-sh_type := (word int)
+sh_type := (word (int))
+	| (word int) {}
+	| word
+
 sh_main := (sh_type)
+sh_color := color2

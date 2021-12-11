@@ -7,7 +7,7 @@
 #include <set>
 
 // Debugging nabu rules
-#define NABU_DEBUG_RULES
+// #define NABU_DEBUG_RULES
 
 // Nabu library headers
 #include "nabu.hpp"
@@ -28,6 +28,7 @@
 struct State {
 	// Set of rule tags
 	std::set <std::string>		tags;
+	std::set <std::string>		resolved;	// Tags that have been resovled
 
 	// Unresolved symbols (maps to line number)
 	std::map <std::string, size_t>	unresolved;
@@ -57,14 +58,16 @@ struct State {
 	// Add tag and unresolved
 	void push_symbol(const std::string &symbol, size_t line) {
 		tags.insert(symbol);
-		if (tags.count(symbol) == 0)
+		if (resolved.count(symbol) == 0)
 			unresolved[symbol] = line;
 	}
 
 	// Attempt to resolve a symbol
 	void resolve_symbol(const std::string &symbol) {
+		// In case anything goes wrong
 		if (tags.count(symbol))
 			unresolved.erase(symbol);
+		resolved.insert(symbol);
 	}
 };
 
@@ -301,12 +304,8 @@ template <> struct nabu::rule <paren_term> : public seqrule <
 		if (!rptr)
 			return nullptr;
 		
-		// Create rule tag for the sub-expression
-		std::string rule_tag = "sub_expression_"
-			+ std::to_string(state.parenthesized++);
-		
-		// Return this rule tag
-		return ret(new Tret <std::string> (rule_tag));
+		// Return term expression
+		return getrv(rptr)[1];
 	}
 };
 
@@ -316,7 +315,16 @@ template <> struct nabu::rule <paren_term> : public seqrule <
 template <> struct nabu::rule <simple_term> : public multirule <
 		term_singlet,
 		paren_term
-	> {};
+	> {
+
+	// Return indexed value
+	static ret value(Feeder *fd) {
+		mt_ret mr = _value(fd);
+		if (mr.first < 0)
+			return nullptr;
+		return ret(new Tret <mt_ret> (mr));
+	}
+};
 
 // Full term is term will option * or +
 template <> struct nabu::rule <full_term> : public seqrule <
@@ -338,24 +346,7 @@ template <> struct nabu::rule <full_term> : public seqrule <
 			return nullptr;
 
 		// Convert to ReturnVector
-		ReturnVector rvec = getrv(rptr);
-
-		// Check kstar or kplus
-		std::string rule_expr = get <std::string> (rvec[0]);
-
-		switch (get <int> (rvec[1])) {
-		case KSTAR:
-			rule_expr = "kstar <" + rule_expr + ">";
-			break;
-		case KPLUS:
-			rule_expr = "kplus <" + rule_expr + ">";
-			break;
-		default:
-			break;
-		}
-		
-		// Return the constructed sub-expression
-		return ret(new Tret <std::string> (rule_expr));
+		return rptr;
 	}
 };
 
@@ -402,33 +393,7 @@ template <> struct nabu::rule <term_prime> : public multirule <
 	}
 };
 
-template <> struct nabu::rule <term_expr> : public kplus <full_term> {
-	static ret value(Feeder *fd) {
-		ret rptr = kplus <full_term> ::value(fd);
-		if (!rptr)
-			return nullptr;
-
-		std::string combined;
-
-		// Should always be a list of strings
-		// TODO: optimize one rule expressions
-		ReturnVector rvec = getrv(rptr);
-		for (size_t i = 0; i < rvec.size(); i++) {
-			combined += get <std::string> (rvec[i]);
-			if (i < rvec.size() - 1)
-				combined += ", ";
-		}
-
-		// Only make seqrule if size is greater than 1
-		if (rvec.size() > 1)
-			combined = "seqrule <" + combined + ">";
-		else
-			combined = "rule <" + combined + ">";
-
-		// Return constructed expression
-		return ret(new Tret <std::string> (combined));
-	}
-};
+template <> struct nabu::rule <term_expr> : public kplus <full_term> {};
 
 struct basic_expression {};
 struct custom_expression {};
@@ -478,39 +443,134 @@ template <> struct nabu::rule <option_list> : public kstar <skipper <option_expr
 	}
 };
 
-template <> class nabu::rule <statement> : public seqrule <identifier, defined, expression, option_list> {
-	static std::string mk_rule(std::string rule_tag, mt_ret mr) {
-		std::string rule_expr;
-		if (mr.first == 0) {
-			// Custom expression
-			ReturnVector crv = getrv(mr.second);
-			rule_expr = format(
-				sources::custom_expression,
-				state.lang_name + "::" + rule_tag,
-				get <std::string> (crv[0]),
-				get <std::string> (crv[1])
-			);
-		} else if (mr.first == 1) {
-			// Basic expression
-			rule_expr = format(
-				sources::basic_expression,
-				state.lang_name + "::" + rule_tag,
-				get <std::string> (mr.second)
-			);
+template <> class nabu::rule <statement> : public seqrule <
+		identifier,
+		defined,
+		expression,
+		option_list
+	> {
+	
+	// Index constants
+	enum {
+		CUSTOM = 0,
+		BASIC = 1,
+
+		SIMPLE = 0,
+		PAREN = 1,
+
+		KSTAR = 0,
+		KPLUS = 1,
+		EPSILON = 2
+	};
+
+	static std::string mk_term(ret rptr) {
+		// As a list
+		ReturnVector rvec = getrv(rptr);
+		// std::cout << "\trptr = " << rptr->str() << std::endl;
+
+		// Get indexable value
+		mt_ret mr = get <mt_ret> (rvec[0]);
+
+		std::string term;
+		if (mr.first == SIMPLE) {
+			// Simple term
+			term = get <std::string> (mr.second);
+			// std::cout << "\t\tsimple term = " << term << std::endl;
+		} else if (mr.first == PAREN) {
+			// Parenthesized term
+			// std::string term = get <std::string> (mr.second);
+			// std::cout << "\t\tparenthesized term = " << mr.second->str() << std::endl;
+
+			// TODO: make a named rule for this
+			term = mk_term_expr(mr.second, true);
+		} // Throw internal error
+
+		// std::cout << "\tso far, term = " << term << std::endl;
+
+		switch (get <int> (rvec[1])) {
+		case KSTAR:
+			term = "kstar <" + term + ">";
+			break;
+		case KPLUS:
+			term = "kplus <" + term + ">";
+			break;
+		case EPSILON:
+			break;
 		}
 
-		return rule_expr;
+		return term;
 	}
 
-	static void mk_optns(const std::string &rule_tag, const std::vector <mt_ret> &sub_rules) {
-		for (size_t i = 0; i < sub_rules.size(); i++) {
-			std::string optn = rule_tag + "_optn_" + std::to_string(i);
-			std::string rule_expr = mk_rule(optn, sub_rules[i]);
+	static std::string mk_term_expr(ret rptr, bool nested) {
+		ReturnVector rvec = getrv(rptr);
 
-			// Add rule to set
-			add_source(rule_expr);
-			add_tag(optn);
+		// If single element, return mk_term value
+		if (rvec.size() == 1) {
+			// Term
+			std::string term = mk_term(rvec[0]);
+
+			// If nested in parenthesis, return mk_term value
+			if (nested)
+				return term;
+			
+			// If not a seqrule, enclose in rule
+			if (term.length() > 7 && term.substr(0, 7) == "seqrule")
+				return term;
+			
+			return "rule <" + term + ">";
 		}
+
+		// Otherwise, create a seqrule
+		std::string combined = "seqrule <";
+		for (size_t i = 0; i < rvec.size(); i++) {
+			combined += mk_term(rvec[i]);
+			if (i < rvec.size() - 1)
+				combined += ", ";
+		}
+		
+		return combined + ">";
+	}
+
+	static std::string mk_expression(const std::string &rule_tag, ret rptr) {
+		mt_ret mr = get <mt_ret> (rptr);
+
+		// Actual expression
+		std::string expr;
+		
+		if (mr.first == CUSTOM) {
+			ReturnVector rvec = getrv(mr.second);
+			expr = mk_term_expr(rvec[0], false);
+		} else if (mr.first == BASIC) {
+			expr = mk_term_expr(mr.second, false);
+		}
+
+		// Source code
+		std::string code;
+		if (mr.first == CUSTOM) {
+			ReturnVector rvec = getrv(mr.second);
+			code = format(
+				sources::custom_expression,
+				state.lang_name + "::" + rule_tag,
+				expr,
+				rvec[1]->str()
+			);
+		} else {
+			code = format(
+				sources::basic_expression,
+				state.lang_name + "::" + rule_tag,
+				expr
+			);
+		}
+
+		// std::cout << "code = " << code << std::endl;
+
+		// Add the code
+		add_source(code);
+
+		// Resolve a symbol only if it is defined
+		state.push_symbol(rule_tag, -1);
+		state.resolve_symbol(rule_tag);
+		return code;
 	}
 public:
 	static ret value(Feeder *fd) {
@@ -519,6 +579,7 @@ public:
 			return nullptr;
 
 		ReturnVector rvec = getrv(rptr);
+		// std::cout << rvec.json() << std::endl;
 
 		// Get the rule tag
 		std::string rule_tag = get <std::string> (rvec[0]);
@@ -528,37 +589,39 @@ public:
 
 		// If there are options, separate each rule
 		ReturnVector optns = getrv(rvec[3]);
-
-		// Generate the rule
-		std::string rule_expr;
-		if (optns) {
-			std::vector <mt_ret> sub_rules {mr};
-			for (size_t i = 0; i < optns.size(); i++) {
-				mt_ret opt = get <mt_ret> (optns[i]);
-				sub_rules.push_back(opt);
-			}
-
-			// Create the sub-rules
-			mk_optns(rule_tag, sub_rules);
-
-			// String the rule
-			rule_expr = "template <> struct nabu::rule <"
-				+ state.lang_name + "::" + rule_tag + "> : public multirule <";
-			for (size_t i = 0; i < sub_rules.size(); i++) {
-				rule_expr += state.lang_name + "::" + rule_tag
-					+ "_optn_" + std::to_string(i);
-				if (i < sub_rules.size() - 1)
-					rule_expr += ", ";
-			}
-
-			rule_expr += "> {};";
-		} else {
-			rule_expr = mk_rule(rule_tag, mr);
-		}
+		// std::cout << "optns: " << optns.json() << std::endl;
 
 		// Add rule to set
-		add_source(rule_expr);
 		set_first(rule_tag);
+
+		// Different things for options
+		if (optns) {
+			size_t i = 0;
+			mk_expression(rule_tag + "_optn_" + std::to_string(i), rvec[2]);
+			for (ret optn : optns)
+				mk_expression(rule_tag + "_optn_" + std::to_string(++i), optn);
+			
+			// Create multirule code
+			std::string code = "template <> struct nabu::rule <"
+				+ state.lang_name + "::" + rule_tag
+				+ "> : public multirule <\n\t\t";
+
+			for (size_t j = 0; j <= i; j++) {
+				code += state.lang_name + "::" + rule_tag
+					+ "_optn_" + std::to_string(j);
+
+				if (j < i)
+					code += ",\n\t\t";
+			}
+
+			// Add end
+			code += "\n\t> {};\n";
+
+			// Add the source
+			add_source(code);
+		} else {
+			mk_expression(rule_tag, rvec[2]);
+		}
 
 		// Resolve a symbol only if it is defined
 		state.push_symbol(rule_tag, -1);
