@@ -5,6 +5,7 @@
 #include <iostream>
 #include <map>
 #include <set>
+#include <unordered_map>
 
 // Debugging nabu rules
 // #define NABU_DEBUG_RULES
@@ -54,6 +55,14 @@ struct State {
 
 	// Index of parenthesized expressions
 	size_t				parenthesized = 0;
+
+	// Predefined symbols
+	std::unordered_map <std::string, std::string> predefined {
+		{"int", "int"},
+		{"double", "double"},
+		{"identifier", "nabu::identifier"},
+		{"word", "nabu::word"}
+	};
 	
 	// Add tag and unresolved
 	void push_symbol(const std::string &symbol, size_t line) {
@@ -116,12 +125,6 @@ inline void warn_no_col(const std::string &source, size_t line, const std::strin
 // Literals constants and rules
 extern const char walrus_str[];
 
-// Predefined rules
-extern const char int_str[];
-extern const char double_str[];
-extern const char identifier_str[];
-extern const char word_str[];
-
 // Using declarations
 using lbrace = nabu::space_lit <'{'>;
 using option = nabu::space_lit <'|'>;
@@ -166,67 +169,10 @@ template <> struct nabu::rule <custom_enclosure> : public seqrule <lbrace, delim
 struct term_star {};
 struct term_plus {};
 
-// Predefined rules
-#define mk_predefined(name)				\
-	struct name##_rule {};				\
-							\
-	template <> struct nabu::rule <name##_rule>	\
-		: public rule <str <name##_str>> {};
-
-mk_predefined(int);
-mk_predefined(double);
-mk_predefined(identifier);
-mk_predefined(word);
-
-// Overarching rule for predefined
-struct predefined {};
-
-template <> struct nabu::rule <predefined> : public multirule <
-		int_rule,
-		double_rule,
-		identifier_rule,
-		word_rule
-	> {
-
-	// Index constants
-	enum {
-		INT_RULE,
-		DOUBLE_RULE,
-		IDENTIFIER_RULE,
-		WORD_RULE
-	};
-	
-	// Return the corresponding nabu rule
-	static ret value(Feeder *fd) {
-		// Run the multirule
-		mt_ret mr = _value(fd);
-		if (mr.first < 0)
-			return nullptr;
-		
-		// Macros for cases and returns?
-		switch (mr.first) {
-		case INT_RULE:
-			return ret(new Tret <std::string> ("int"));
-		case DOUBLE_RULE:
-			return ret(new Tret <std::string> ("double"));
-		case IDENTIFIER_RULE:
-			return ret(new Tret <std::string> ("nabu::identifier"));
-		case WORD_RULE:
-			return ret(new Tret <std::string> ("nabu::word"));
-		default:
-			break;
-		}
-
-		// TODO: should have a fatal error
-		return nullptr;
-	}
-};
-
 // Singlet term
 struct term_singlet {};
 
 template <> struct nabu::rule <term_singlet> : public multirule <
-		skipper_no_nl <predefined>,
 		skipper_no_nl <identifier>,
 		skipper_no_nl <cchar>,
 		skipper_no_nl <cstr>
@@ -234,7 +180,6 @@ template <> struct nabu::rule <term_singlet> : public multirule <
 
 	// Index constants
 	enum {
-		PREDEFINED,
 		IDENTIFIER,
 		C_CHAR,
 		C_STR
@@ -251,17 +196,21 @@ template <> struct nabu::rule <term_singlet> : public multirule <
 		if (mr.first < 0)
 			return nullptr;
 
+		std::string value;
 		std::string rule_tag;	// Tag
 		std::string rule_expr;	// Actual rule
 
 		// TODO: enum for cases
 		switch (mr.first) {
-		case PREDEFINED:
-			rule_expr = get <std::string> (mr.second);
-			break;
 		case IDENTIFIER:
-			rule_tag = get <std::string> (mr.second);
-			rule_expr = state.lang_name + "::" + rule_tag;
+			value = get <std::string> (mr.second);
+			if (state.predefined.count(value)) {
+				rule_expr = state.predefined[value];
+			} else {
+				rule_tag = get <std::string> (mr.second);
+				rule_expr = state.lang_name + "::" + rule_tag;
+			}
+			
 			break;
 		case C_CHAR:
 			rule_expr = std::string("lit <\'") + get <char> (mr.second) + "\'>";
@@ -771,12 +720,6 @@ struct statement_list {};
 template <> struct nabu::rule <statement_list> : public kstar <skipper <unit>> {};
 
 // Set names
-set_name(int_rule, int_rule);
-set_name(double_rule, double_rule);
-set_name(identifier_rule, identifier_rule);
-set_name(word_rule, word_rule);
-set_name(predefined, predefined);
-
 set_name(term_star, term_star);
 set_name(term_plus, term_plus);
 
