@@ -165,11 +165,46 @@ struct defined {};
 
 template <> struct nabu::rule <defined> : public rule <str <walrus_str>> {};
 
+// Custom delimiter string, to allow nested braces
+struct enclosure {};
+
+template <> struct nabu::rule <enclosure> {
+	static ret value(Feeder *fd) {
+		// Return string
+		std::string out;
+
+		// Nesting level
+		int level = 1;
+
+		// Loop until EOF or character or rbrace and level is 0
+		char n;
+		while (((n = fd->next()) != EOF)) {
+			if (n == '{')
+				level++;
+			else if (n == '}')
+				level--;
+
+			if (level == 0)
+				break;
+
+			out += n;
+		}
+
+		// TODO: Check unterminated braces (record nl and col)
+		// if (n == EOF)
+		//	error(fd, "%s", "unclosed brace\n");
+		
+		// Return string
+		// TODO: add mk_tret
+		return ret(new Tret <std::string> (out));
+	}
+};
+
 // TODO: macro for these cycles?
 struct custom_enclosure {};
 
 // TODO: maybe check for returns?
-template <> struct nabu::rule <custom_enclosure> : public seqrule <lbrace, delim_str <'}'>> {
+template <> struct nabu::rule <custom_enclosure> : public seqrule <lbrace, enclosure> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd);
 		if (rptr)
@@ -524,7 +559,7 @@ template <> class nabu::rule <statement> : public seqrule <
 				sources::custom_expression,
 				state.lang_name + "::" + rule_tag,
 				expr,
-				rvec[1]->str()
+				get <std::string> (rvec[1])
 			);
 		} else {
 			code = format(

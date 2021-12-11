@@ -69,6 +69,8 @@ struct nabu::rule <@1> : public @2 {
 	static ret value(Feeder *fd) {
 		// Predefined values
 		ret _val = @2 ::value(fd);
+		if (!_val)
+			return nullptr;
 
 		// User source
 		@3
