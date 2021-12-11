@@ -454,7 +454,7 @@ public:
 	// Public aliases
 	using Args = std::vector <std::string>;
 	using StringMap = std::unordered_map <std::string, std::string>;
-	using ArgsMap = std::unordered_map <std::string, Args *>;
+	using ArgsMap = std::unordered_map <std::string, int>;
 private:
 	// Set of all options
 	std::set <std::string>	_optns;
@@ -466,7 +466,6 @@ private:
 	std::vector <Args>	_aliases;
 
 	// Map options to aliases
-	//	nullptr if no alias
 	ArgsMap			_alias_map;
 
 	// Description for each option
@@ -505,8 +504,10 @@ private:
 
 	// Set value of option (and aliases)
 	void _set_optn(const std::string &str, const std::string &val) {
+		int index = _alias_map[str];
+
 		// Set the aliases
-		for (const auto &alias : *(_alias_map[str]))
+		for (const auto &alias : _aliases[index])
 			_matched_args[alias] = val;
 	}
 
@@ -595,7 +596,7 @@ public:
 		_aliases.push_back(Args {str});
 
 		// Alias map to nullptr
-		_alias_map[str] = &_aliases[_aliases.size() - 1];
+		_alias_map[str] = (int) _aliases.size() - 1;
 	}
 
 	// Add an option with aliases
@@ -620,7 +621,7 @@ public:
 
 		// Add to the alias map
 		for (const auto &arg : args)
-			_alias_map[arg] = &_aliases[_aliases.size() - 1];
+			_alias_map[arg] = (int) _aliases.size() - 1;
 	}
 
 	void parse(int argc, char *argv[]) {

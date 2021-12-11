@@ -73,7 +73,7 @@ void warn_unresolved(Feeder *fd)
 
 // File writer
 // TODO: separate stages into methods
-int nabu_out(const std::string &file)
+std::string nabu_out(const std::string &file)
 {
 	// Input and output
 	StringFeeder sf = StringFeeder::from_file(file);
@@ -98,15 +98,19 @@ int nabu_out(const std::string &file)
 		printf(" generated\n");
 
 	// Set main rule
+	std::string outname = file;
 	if (state.no_main_rule) {
 		state.main_rule = "";
 		// TODO: need to check if source has main defined
-		fout.open(file + ".hpp");
+		outname = file + ".hpp";
 	} else {
 		if (state.main_rule.empty())
 			state.main_rule = state.first_tag;
-		fout.open(file + ".cpp");
+		outname = file + ".cpp";
 	}
+
+	// Open output file
+	fout.open(outname);
 
 	// Write copyright
 	fout << sources::copyright << std::endl;
@@ -154,12 +158,14 @@ int nabu_out(const std::string &file)
 			fout << format(sources::main, main) << endl;
 	}
 
-	return 0;
+	return outname;
 }
 
 // Argument parser
 static ArgParser ap("nabu", 1, {
-	ArgParser::Option(ArgParser::Args {"-j", "--json"}, "Print JSON output")
+	ArgParser::Option(ArgParser::Args {"-j", "--json"}, "Print JSON output"),
+	ArgParser::Option(ArgParser::Args {"-c", "--compile"},
+		"Compile the generated code (if @noentry was not specified)")
 });
 
 int main(int argc, char *argv[])
@@ -181,5 +187,19 @@ int main(int argc, char *argv[])
 		return ap.error("file " + filename + " does not exist");
 
 	// Run
-	return nabu_out(filename);
+	std::string fout = nabu_out(filename);
+
+	// Compile if requested
+	if (ap.get_optn <bool> ("-c")) {
+		std::string cmd = "g++ -std=c++11 -o "
+			+ filename.substr(0, filename.size() - 5)
+			+ " " + fout;
+		system(cmd.c_str());
+
+		// Print location of the executable
+		printf("\nCompiled executable is located at %s\n",
+			filename.substr(0, filename.size() - 5).c_str());
+	}
+
+	return 0;
 }
