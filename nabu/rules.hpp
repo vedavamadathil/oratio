@@ -7,7 +7,7 @@
 #include <set>
 
 // Debugging nabu rules
-// #define NABU_DEBUG_RULES
+#define NABU_DEBUG_RULES
 
 // Nabu library headers
 #include "nabu.hpp"
@@ -50,6 +50,9 @@ struct State {
 	// Number of warnings and errors
 	size_t				warnings = 0;
 	size_t				errors = 0;
+
+	// Index of parenthesized expressions
+	size_t				parenthesized = 0;
 	
 	// Add tag and unresolved
 	void push_symbol(const std::string &symbol, size_t line) {
@@ -278,28 +281,54 @@ template <> struct nabu::rule <term_singlet> : public multirule <
 	}
 };
 
-// General term
-struct term {};
+// General terms
+struct full_term {};
+struct simple_term {};
+struct paren_term {};
 struct term_prime {};
+struct term_expr {};
 
-// TODO: term star and term plus using right recursion (convert from left)
-template <> struct nabu::rule <term> : public seqrule <
+// Term as a parenthesized expression
+template <> struct nabu::rule <paren_term> : public seqrule <
+		lit <'('>,
+		term_expr,
+		lit <')'>
+	> {
+
+	// Create a new sub-expression tag
+	static ret value(Feeder *fd) {
+		ret rptr = _value(fd);
+		if (!rptr)
+			return nullptr;
+		
+		// Create rule tag for the sub-expression
+		std::string rule_tag = "sub_expression_"
+			+ std::to_string(state.parenthesized++);
+		
+		// Return this rule tag
+		return ret(new Tret <std::string> (rule_tag));
+	}
+};
+
+// Simple term is either a simple term or a parenthesized experession
+//	no need to specialize the value function because both return
+//	a string
+template <> struct nabu::rule <simple_term> : public multirule <
 		term_singlet,
+		paren_term
+	> {};
+
+// Full term is term will option * or +
+template <> struct nabu::rule <full_term> : public seqrule <
+		simple_term,
 		term_prime
 	> {
-	
+
 	// Index constants
 	enum {
 		KSTAR,
 		KPLUS,
 		EPSILON
-	};
-
-	enum {
-		PREDEFINED,
-		IDENTIFIER,
-		C_CHAR,
-		C_STR
 	};
 
 	static ret value(Feeder *fd) {
@@ -330,6 +359,7 @@ template <> struct nabu::rule <term> : public seqrule <
 	}
 };
 
+// Left recursion
 template <> struct nabu::rule <term_star> : public seqrule <skipper_no_nl <lit <'*'>>, term_prime> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd, false);
@@ -372,15 +402,13 @@ template <> struct nabu::rule <term_prime> : public multirule <
 	}
 };
 
-struct term_expr {};
-
-template <> struct nabu::rule <term_expr> : public kplus <term> {
+template <> struct nabu::rule <term_expr> : public kplus <full_term> {
 	static ret value(Feeder *fd) {
-		ret rptr = kplus <term> ::value(fd);
+		ret rptr = kplus <full_term> ::value(fd);
 		if (!rptr)
 			return nullptr;
 
-		std::string combined = "seqrule <";
+		std::string combined;
 
 		// Should always be a list of strings
 		// TODO: optimize one rule expressions
@@ -391,8 +419,13 @@ template <> struct nabu::rule <term_expr> : public kplus <term> {
 				combined += ", ";
 		}
 
-		// Complete the rule and return it
-		combined += ">";
+		// Only make seqrule if size is greater than 1
+		if (rvec.size() > 1)
+			combined = "seqrule <" + combined + ">";
+		else
+			combined = "rule <" + combined + ">";
+
+		// Return constructed expression
 		return ret(new Tret <std::string> (combined));
 	}
 };
@@ -528,12 +561,8 @@ public:
 		set_first(rule_tag);
 
 		// Resolve a symbol only if it is defined
-		std::cout << "Defining statement: " << rule_tag << std::endl;
 		state.push_symbol(rule_tag, -1);
 		state.resolve_symbol(rule_tag);
-		for (const auto &str : state.unresolved)
-			std::cout << "\tunresolved: " << str.first << std::endl;
-
 		return rptr;
 	}
 };
@@ -688,7 +717,7 @@ set_name(predefined, predefined);
 set_name(term_star, term_star);
 set_name(term_plus, term_plus);
 
-set_name(term, term);
+set_name(simple_term, simple_term);
 set_name(term_expr, term_expr);
 set_name(custom_enclosure, custom_enclosure);
 set_name(custom_expression, custom_expression);
