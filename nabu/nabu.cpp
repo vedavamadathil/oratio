@@ -72,6 +72,7 @@ void warn_unresolved(Feeder *fd)
 }
 
 // File writer
+// TODO: separate stages into methods
 int nabu_out(const std::string &file)
 {
 	// Input and output
@@ -113,9 +114,15 @@ int nabu_out(const std::string &file)
 	// Include nabu
 	fout << "#include \"nabu.hpp\"\n\n";
 
+	// Create string literals
+	for (size_t i = 0; i < state.literals.size(); i++) {
+		fout << "const char str_lit_" << i << "[] = \""
+			<< state.literals[i] << "\";\n";
+	}
+
 	// Begin namespace
 	if (!state.lang_name.empty())
-		fout << "namespace " << state.lang_name << " {\n";
+		fout << "\nnamespace " << state.lang_name << " {\n";
 
 	// Output all rule tags
 	fout << sources::hrule_tag << std::endl;

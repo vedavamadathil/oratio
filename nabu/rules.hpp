@@ -56,12 +56,24 @@ struct State {
 	// Index of parenthesized expressions
 	size_t				parenthesized = 0;
 
+	// Index of str literals
+	size_t				lindex = 0;
+
+	// String literals
+	// TODO: should recycle these using set
+	std::vector <std::string>	literals;
+
 	// Predefined symbols
 	std::unordered_map <std::string, std::string> predefined {
+		// C++ built-in
 		{"int", "int"},
 		{"double", "double"},
+		{"char", "char"},
+
+		// Nabu built-in
 		{"identifier", "nabu::identifier"},
-		{"word", "nabu::word"}
+		{"word", "nabu::word"},
+		{"space", "nabu::space"}
 	};
 	
 	// Add tag and unresolved
@@ -200,6 +212,9 @@ template <> struct nabu::rule <term_singlet> : public multirule <
 		std::string rule_tag;	// Tag
 		std::string rule_expr;	// Actual rule
 
+		// Is the term a string literal?
+		size_t index = 0;
+
 		// TODO: enum for cases
 		switch (mr.first) {
 		case IDENTIFIER:
@@ -210,14 +225,14 @@ template <> struct nabu::rule <term_singlet> : public multirule <
 				rule_tag = get <std::string> (mr.second);
 				rule_expr = state.lang_name + "::" + rule_tag;
 			}
-			
+
 			break;
 		case C_CHAR:
 			rule_expr = std::string("lit <\'") + get <char> (mr.second) + "\'>";
 			break;
 		case C_STR:
-			// TODO: deal with static const char[] caveat
-			rule_expr = "str <\"" + get <std::string> (mr.second) + "\">";
+			rule_expr = get <std::string> (mr.second);
+			index = 1;
 			break;
 		default:
 			// Throw internal error
@@ -229,7 +244,10 @@ template <> struct nabu::rule <term_singlet> : public multirule <
 			state.push_symbol(rule_tag, line);
 		
 		// Return the constructed sub-expression
-		return ret(new Tret <std::string> (rule_expr));
+		return ret(new Tret <mt_ret> ({
+			index,
+			ret(new Tret <std::string> (rule_expr))
+		}));
 	}
 };
 
@@ -409,7 +427,9 @@ template <> class nabu::rule <statement> : public seqrule <
 
 		KSTAR = 0,
 		KPLUS = 1,
-		EPSILON = 2
+		EPSILON = 2,
+
+		LITERAL = 1
 	};
 
 	static std::string mk_term(ret rptr) {
@@ -421,15 +441,18 @@ template <> class nabu::rule <statement> : public seqrule <
 		mt_ret mr = get <mt_ret> (rvec[0]);
 
 		std::string term;
-		if (mr.first == SIMPLE) {
-			// Simple term
-			term = get <std::string> (mr.second);
-			// std::cout << "\t\tsimple term = " << term << std::endl;
-		} else if (mr.first == PAREN) {
-			// Parenthesized term
-			// std::string term = get <std::string> (mr.second);
-			// std::cout << "\t\tparenthesized term = " << mr.second->str() << std::endl;
+		if (mr.first == SIMPLE) {		// Simple term
 
+			// Check for possible literal
+			mt_ret plit = get <mt_ret> (mr.second);
+
+			// Either value, set term to value
+			term = get <std::string> (plit.second);
+			if (plit.first == LITERAL) {
+				state.literals.push_back(term);
+				term = "str <str_lit_" + std::to_string(state.lindex++) + ">";
+			}
+		} else if (mr.first == PAREN) {		// Parenthesized term
 			// TODO: make a named rule for this
 			term = mk_term_expr(mr.second, true);
 		} // Throw internal error

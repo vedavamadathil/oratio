@@ -1,4 +1,5 @@
 @project xyzwlang
 @entry sh_main
 
-sh_type := (word)
+sh_type := "int" | "double"
+sh_main := sh_type | word

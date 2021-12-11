@@ -1167,6 +1167,9 @@ protected:
 // Empty rule
 struct epsilon {};
 
+// Space character
+struct space {};
+
 // Generic space skipper wrapper
 template <class T>
 struct skipper;
@@ -1274,6 +1277,18 @@ struct rule <epsilon> {
 	}
 };
 
+// Space character
+template <>
+struct rule <space> {
+	static ret value(Feeder *fd) {
+		char n = fd->next();
+		if (isspace(n))
+			return ret(new Tret <char> (n));
+
+		return fd->abort();	// TODO: isnt this neof?
+	}
+};
+
 // Whitespace skippter
 template <class T>
 struct rule <skipper <T>> {
@@ -1300,7 +1315,7 @@ struct rule <lit <c>> {
 		if (n == c)
 			return ret(new Tret <char> (n));
 
-		return fd->abort();
+		return fd->abort();	// TODO: isnt this neof?
 	}
 };
 
@@ -1439,9 +1454,21 @@ struct rule <cstr> {
 	}
 };
 
-// Word: characters with no space
+// C++ character and string
 template <>
-struct rule <word> {
+struct rule <char> {
+	static ret value(Feeder *fd) {
+		char n = fd->next();
+		if (n == EOF)
+			return nullptr;
+
+		return ret(new Tret <char> (n));
+	}
+};
+
+// String: characters with no space
+template <>
+struct rule <std::string> {
 	static ret value(Feeder *fd) {
 		char n = fd->next();
 		if (!isspace(n) && n != EOF) {
@@ -1462,6 +1489,14 @@ struct rule <word> {
 		}
 
 		return fd->abort();
+	}
+};
+
+// Word, same as string
+template <>
+struct rule <word> {
+	static ret value(Feeder *fd) {
+		return rule <std::string> ::value(fd);
 	}
 };
 
