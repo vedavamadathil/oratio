@@ -61,11 +61,11 @@ std::string format(const std::string &source, Args ... strs)
 namespace sources {
 
 // Static source templates
-constexpr const char *basic_expression = R"(template <> struct nabu::rule <@1> : public @2 {};
+constexpr const char *basic_expression = R"(template <> struct nabu::rules::rule <@1> : public @2 {};
 )";
 
 constexpr const char *custom_expression = R"(template <>
-struct nabu::rule <@1> : public @2 {
+struct nabu::rules::rule <@1> : public @2 {
 	static ret value(Feeder *fd) {
 		// Predefined values
 		ret _val = @2 ::value(fd);
@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
 	nabu::StringFeeder sf = nabu::StringFeeder::from_file(argv[1]);
 
 	// Parse the file and print JSON
-	nabu::ret rptr = nabu::kstar <@1> ::value(&sf);
+	nabu::ret rptr = nabu::rules::kstar <@1> ::value(&sf);
 	std::cout << nabu::getrv(rptr).json() << std::endl;
 }
 )";
@@ -112,7 +112,7 @@ int main(int argc, char *argv[])
 	nabu::StringFeeder sf = nabu::StringFeeder::from_file(argv[1]);
 
 	// Parse the file
-	nabu::rule <@1> ::value(&sf);
+	nabu::rules::rule <@1> ::value(&sf);
 }
 )";
 

@@ -208,6 +208,18 @@ inline ReturnVector getrv(ret rptr)
 	return *((ReturnVector *) rptr.get());
 }
 
+// Special (alternate) return type for multiplexs
+//	contains information about the index
+//	of the rule that succeeded
+using mt_ret = std::pair <int, ret >;
+
+// Printing mt_rets
+template <>
+std::string Tret <mt_ret> ::str() const
+{
+	return "<" + std::to_string(value.first) + ", " + value.second->str() + ">";
+}
+
 // Constant returns
 #define NABU_SUCCESS (ret ) 0x1
 #define NABU_FAILURE nullptr
@@ -852,6 +864,8 @@ inline bool ArgParser::get_optn <bool> (const std::string &str) {
 	return _convert <bool> (_matched_args[str]);
 }
 
+namespace rules {
+
 // Rule structures
 // TODO: docs -> always backup the tokens/characters if unsuccessful
 template <class T>
@@ -979,21 +993,9 @@ const char grammar <T> ::success[] = "\033[1;92m";
 template <class T>
 const char grammar <T> ::failure[] = "\033[1;91m";
 
-// Special (alternate) return type for multirules
-//	contains information about the index
-//	of the rule that succeeded
-using mt_ret = std::pair <int, ret >;
-
-// Printing mt_rets
-template <>
-std::string Tret <mt_ret> ::str() const
-{
-	return "<" + std::to_string(value.first) + ", " + value.second->str() + ">";
-}
-
-// Multirule (simultaneous) template
+// multiplex (simultaneous) template
 template <class ... T>
-struct multirule {
+struct multiplex {
 	static ret value(Feeder *) {
 		return nullptr;
 	}
@@ -1009,16 +1011,16 @@ protected:
 	}
 };
 
-// NOTE: Multirule returns the first valid return
+// NOTE: multiplex returns the first valid return
 template <class T, class ... U>
-struct multirule <T, U...> {
+struct multiplex <T, U...> {
 	static ret value(Feeder *fd) {
 		// Evaluate
 		ret rptr = grammar <T> ::value(fd);
 		if (rptr)
 			return rptr;
 
-		return multirule <U...> ::value(fd);
+		return multiplex <U...> ::value(fd);
 	}
 
 	static ret _process(Feeder *fd, int &prev) {
@@ -1027,7 +1029,7 @@ struct multirule <T, U...> {
 			return rptr;
 
 		prev++;
-		return multirule <U...> ::_process(fd, prev);
+		return multiplex <U...> ::_process(fd, prev);
 	}
 protected:
 	static mt_ret _value(Feeder *fd) {
@@ -1039,7 +1041,7 @@ protected:
 
 // Sequential rule
 template <class ... T>
-struct seqrule {
+struct sequential {
 	static bool _process(Feeder *fd, std::vector <ret > &rets, bool skip) {
 		rets.clear();
 		return false;
@@ -1056,7 +1058,7 @@ protected:
 
 // Sequential rules
 template <class T>
-struct seqrule <T> {
+struct sequential <T> {
 	static ret value(Feeder *fd, bool skip = true) {
 		fd->checkpoint();				// Create checkpoint
 		std::vector <ret > sret;
@@ -1084,14 +1086,14 @@ struct seqrule <T> {
 protected:
 	// Protected method that is equal to value
 	// 	exists to conveniently call from derived
-	//	classes without instantiating seqrule
+	//	classes without instantiating sequential
 	static ret _value(Feeder *fd, bool skip = true) {
 		return value(fd, skip);
 	}
 };
 
 template <class T, class ... U>
-struct seqrule <T, U...> {
+struct sequential <T, U...> {
 	static ret value(Feeder *fd, bool skip = true) {
 		fd->checkpoint();				// Create checkpoint
 		std::vector <ret > sret;
@@ -1115,7 +1117,7 @@ struct seqrule <T, U...> {
 			return false;	// Failure on first token
 		}
 
-		if (seqrule <U...> ::_process(fd, sret, skip)) {
+		if (sequential <U...> ::_process(fd, sret, skip)) {
 			sret.insert(sret.begin(), rptr);
 			return true;
 		}
@@ -1164,6 +1166,9 @@ protected:
 		return value(fd);
 	}
 };
+
+// TODO: share these prebuilt structs in the nabu namespace,
+// do the same thing in parser and rules subspace
 
 // Empty rule
 struct epsilon {};
@@ -1553,7 +1558,7 @@ struct rule <alpha> {
 
 // Concatenated literal groups
 template <>
-struct rule <alnum> : public multirule <digit, alpha> {};
+struct rule <alnum> : public multiplex <digit, alpha> {};
 
 // Macro for generating rules for special characters
 #define special_lit(name, c)						\
@@ -1706,19 +1711,21 @@ template_type_rule(float_rule, long double);
 
 }
 
+}
+
 // Macro for name generation
 #define set_name(T, str)				\
 	template <>					\
-	struct nabu::name <T> {				\
+	struct nabu::rules::name <T> {			\
 		static constexpr char value[] = #str;	\
 	};						\
 							\
-	constexpr char nabu::name <T> ::value[];
+	constexpr char nabu::rules::name <T> ::value[];
 
 // Set names
-set_name(nabu::word, word);
-set_name(nabu::identifier, identifier);
-set_name(nabu::cstr, cstr);
-set_name(nabu::cchar, cchar);
+set_name(nabu::rules::word, word);
+set_name(nabu::rules::identifier, identifier);
+set_name(nabu::rules::cstr, cstr);
+set_name(nabu::rules::cchar, cchar);
 
 #endif

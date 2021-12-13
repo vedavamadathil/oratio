@@ -71,9 +71,9 @@ struct State {
 		{"char", "char"},
 
 		// Nabu built-in
-		{"identifier", "nabu::identifier"},
-		{"word", "nabu::word"},
-		{"space", "nabu::space"}
+		{"identifier", "nabu::rules::identifier"},
+		{"word", "nabu::rules::word"},
+		{"space", "nabu::rules::space"}
 	};
 	
 	// Add tag and unresolved
@@ -138,16 +138,16 @@ inline void warn_no_col(const std::string &source, size_t line, const std::strin
 extern const char walrus_str[];
 
 // Using declarations
-using lbrace = nabu::space_lit <'{'>;
-using option = nabu::space_lit <'|'>;
-using equals = nabu::space_lit <'='>;
+using lbrace = nabu::rules::space_lit <'{'>;
+using option = nabu::rules::space_lit <'|'>;
+using equals = nabu::rules::space_lit <'='>;
 
 // Trap structures
 struct equal_trap {};
 struct equal_trap_statement {};
 
 // Error handling rules
-template <> struct nabu::rule <equal_trap> : public rule <equals> {
+template <> struct nabu::rules::rule <equal_trap> : public rule <equals> {
 	static ret value(Feeder *fd) {
 		if (rule <equals> ::value(fd)) {
 			error(fd, "%s", "use \':=\' instead of \'=\'\n");
@@ -163,12 +163,12 @@ template <> struct nabu::rule <equal_trap> : public rule <equals> {
 
 struct defined {};
 
-template <> struct nabu::rule <defined> : public rule <str <walrus_str>> {};
+template <> struct nabu::rules::rule <defined> : public rule <str <walrus_str>> {};
 
 // Custom delimiter string, to allow nested braces
 struct enclosure {};
 
-template <> struct nabu::rule <enclosure> {
+template <> struct nabu::rules::rule <enclosure> {
 	static ret value(Feeder *fd) {
 		// Return string
 		std::string out;
@@ -204,7 +204,7 @@ template <> struct nabu::rule <enclosure> {
 struct custom_enclosure {};
 
 // TODO: maybe check for returns?
-template <> struct nabu::rule <custom_enclosure> : public seqrule <lbrace, enclosure> {
+template <> struct nabu::rules::rule <custom_enclosure> : public sequential <lbrace, enclosure> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd);
 		if (rptr)
@@ -219,7 +219,7 @@ struct term_plus {};
 // Singlet term
 struct term_singlet {};
 
-template <> struct nabu::rule <term_singlet> : public multirule <
+template <> struct nabu::rules::rule <term_singlet> : public multiplex <
 		skipper_no_nl <identifier>,
 		skipper_no_nl <cchar>,
 		skipper_no_nl <cstr>
@@ -238,7 +238,7 @@ template <> struct nabu::rule <term_singlet> : public multirule <
 		//	newlines
 		size_t line = fd->line();
 
-		// Run the multirule
+		// Run the multiplex
 		mt_ret mr = _value(fd);
 		if (mr.first < 0)
 			return nullptr;
@@ -263,7 +263,7 @@ template <> struct nabu::rule <term_singlet> : public multirule <
 
 			break;
 		case C_CHAR:
-			rule_expr = std::string("lit <\'") + get <char> (mr.second) + "\'>";
+			rule_expr = std::string("rules::lit <\'") + get <char> (mr.second) + "\'>";
 			break;
 		case C_STR:
 			rule_expr = get <std::string> (mr.second);
@@ -294,7 +294,7 @@ struct term_prime {};
 struct term_expr {};
 
 // Term as a parenthesized expression
-template <> struct nabu::rule <paren_term> : public seqrule <
+template <> struct nabu::rules::rule <paren_term> : public sequential <
 		lit <'('>,
 		term_expr,
 		lit <')'>
@@ -314,7 +314,7 @@ template <> struct nabu::rule <paren_term> : public seqrule <
 // Simple term is either a simple term or a parenthesized experession
 //	no need to specialize the value function because both return
 //	a string
-template <> struct nabu::rule <simple_term> : public multirule <
+template <> struct nabu::rules::rule <simple_term> : public multiplex <
 		term_singlet,
 		paren_term
 	> {
@@ -329,7 +329,7 @@ template <> struct nabu::rule <simple_term> : public multirule <
 };
 
 // Full term is term will option * or +
-template <> struct nabu::rule <full_term> : public seqrule <
+template <> struct nabu::rules::rule <full_term> : public sequential <
 		simple_term,
 		term_prime
 	> {
@@ -353,7 +353,7 @@ template <> struct nabu::rule <full_term> : public seqrule <
 };
 
 // Left recursion
-template <> struct nabu::rule <term_star> : public seqrule <skipper_no_nl <lit <'*'>>, term_prime> {
+template <> struct nabu::rules::rule <term_star> : public sequential <skipper_no_nl <lit <'*'>>, term_prime> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd, false);
 		if (rptr) {
@@ -366,7 +366,7 @@ template <> struct nabu::rule <term_star> : public seqrule <skipper_no_nl <lit <
 };
 
 // TODO: trap extra + or * for error (nested + or * makes no sense)
-template <> struct nabu::rule <term_plus> : public seqrule <skipper_no_nl <lit <'+'>>, term_prime> {
+template <> struct nabu::rules::rule <term_plus> : public sequential <skipper_no_nl <lit <'+'>>, term_prime> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd, false);
 		if (rptr) {
@@ -379,15 +379,15 @@ template <> struct nabu::rule <term_plus> : public seqrule <skipper_no_nl <lit <
 };
 
 // Rule to prevent left recursion
-template <> struct nabu::rule <term_prime> : public multirule <
+template <> struct nabu::rules::rule <term_prime> : public multiplex <
 		term_star,
 		term_plus,
-		nabu::epsilon
+		epsilon
 	> {
 
 	// Return only the index
 	static ret value(Feeder *fd) {
-		// Run the multirule
+		// Run the multiplex
 		mt_ret mr = _value(fd);
 		if (mr.first < 0)
 			return nullptr;
@@ -395,18 +395,18 @@ template <> struct nabu::rule <term_prime> : public multirule <
 	}
 };
 
-template <> struct nabu::rule <term_expr> : public kplus <full_term> {};
+template <> struct nabu::rules::rule <term_expr> : public kplus <full_term> {};
 
 struct basic_expression {};
 struct custom_expression {};
 
-template <> struct nabu::rule <basic_expression> : public rule <term_expr> {};
-template <> struct nabu::rule <custom_expression> : public seqrule <term_expr, custom_enclosure> {};
+template <> struct nabu::rules::rule <basic_expression> : public rule <term_expr> {};
+template <> struct nabu::rules::rule <custom_expression> : public sequential <term_expr, custom_enclosure> {};
 
 struct expression {};
 struct option_expression {};
 
-template <> struct nabu::rule <option_expression> : public seqrule <option, expression> {
+template <> struct nabu::rules::rule <option_expression> : public sequential <option, expression> {
 	// TODO: fast method to return first element
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd);
@@ -418,7 +418,7 @@ template <> struct nabu::rule <option_expression> : public seqrule <option, expr
 	}
 };
 
-template <> struct nabu::rule <expression> : public multirule <
+template <> struct nabu::rules::rule <expression> : public multiplex <
 		custom_expression,
 		basic_expression
 	> {
@@ -436,7 +436,7 @@ template <> struct nabu::rule <expression> : public multirule <
 struct statement {};
 struct option_list {};
 
-template <> struct nabu::rule <option_list> : public kstar <skipper <option_expression>> {
+template <> struct nabu::rules::rule <option_list> : public kstar <skipper <option_expression>> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd);
 		if (!rptr)
@@ -445,7 +445,7 @@ template <> struct nabu::rule <option_list> : public kstar <skipper <option_expr
 	}
 };
 
-template <> class nabu::rule <statement> : public seqrule <
+template <> class nabu::rules::rule <statement> : public sequential <
 		identifier,
 		defined,
 		expression,
@@ -485,7 +485,7 @@ template <> class nabu::rule <statement> : public seqrule <
 			term = get <std::string> (plit.second);
 			if (plit.first == LITERAL) {
 				state.literals.push_back(term);
-				term = "str <str_lit_" + std::to_string(state.lindex++) + ">";
+				term = "rules::str <str_lit_" + std::to_string(state.lindex++) + ">";
 			}
 		} else if (mr.first == PAREN) {		// Parenthesized term
 			// TODO: make a named rule for this
@@ -496,10 +496,10 @@ template <> class nabu::rule <statement> : public seqrule <
 
 		switch (get <int> (rvec[1])) {
 		case KSTAR:
-			term = "kstar <" + term + ">";
+			term = "rules::kstar <" + term + ">";
 			break;
 		case KPLUS:
-			term = "kplus <" + term + ">";
+			term = "rules::kplus <" + term + ">";
 			break;
 		case EPSILON:
 			break;
@@ -520,15 +520,15 @@ template <> class nabu::rule <statement> : public seqrule <
 			if (nested)
 				return term;
 			
-			// If not a seqrule, enclose in rule
-			if (term.length() > 7 && term.substr(0, 7) == "seqrule")
+			// If not a sequential, enclose in rule
+			if (term.length() > 7 && term.substr(0, 7) == "sequential")
 				return term;
 			
 			return "rule <" + term + ">";
 		}
 
-		// Otherwise, create a seqrule
-		std::string combined = "seqrule <";
+		// Otherwise, create a sequential
+		std::string combined = "sequential <";
 		for (size_t i = 0; i < rvec.size(); i++) {
 			combined += mk_term(rvec[i]);
 			if (i < rvec.size() - 1)
@@ -608,10 +608,10 @@ public:
 			for (ret optn : optns)
 				mk_expression(rule_tag + "_optn_" + std::to_string(++i), optn);
 			
-			// Create multirule code
-			std::string code = "template <> struct nabu::rule <"
+			// Create multiplex code
+			std::string code = "template <> struct nabu::rules::rule <"
 				+ state.lang_name + "::" + rule_tag
-				+ "> : public multirule <\n\t\t";
+				+ "> : public multiplex <\n\t\t";
 
 			for (size_t j = 0; j <= i; j++) {
 				code += state.lang_name + "::" + rule_tag
@@ -637,7 +637,7 @@ public:
 	}
 };
 
-template <> struct nabu::rule <equal_trap_statement> : public seqrule <
+template <> struct nabu::rules::rule <equal_trap_statement> : public sequential <
 		identifier,
 		equal_trap,
 		expression,
@@ -652,13 +652,13 @@ extern const char rules_str[];
 extern const char nojson_str[];
 extern const char project_str[];
 
-using prechar = nabu::space_lit <'@'>;
+using prechar = nabu::rules::space_lit <'@'>;
 
 template <const char *str>
 struct pre_dir {};
 
 template <const char *s>
-struct nabu::rule <pre_dir <s>> : public seqrule <prechar, str <s>> {};
+struct nabu::rules::rule <pre_dir <s>> : public sequential <prechar, str <s>> {};
 
 struct pre_entry {};
 struct pre_noentry {};
@@ -667,7 +667,7 @@ struct pre_rules {};
 struct pre_nojson {};
 struct pre_project {};
 
-template <> struct nabu::rule <pre_entry> : public seqrule <
+template <> struct nabu::rules::rule <pre_entry> : public sequential <
 		pre_dir <entry_str>,
 		identifier
 	> {
@@ -683,7 +683,7 @@ template <> struct nabu::rule <pre_entry> : public seqrule <
 	}
 };
 
-template <> struct nabu::rule <pre_noentry> : public seqrule <pre_dir <noentry_str>> {
+template <> struct nabu::rules::rule <pre_noentry> : public sequential <pre_dir <noentry_str>> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd);
 		if (!rptr)
@@ -694,7 +694,7 @@ template <> struct nabu::rule <pre_noentry> : public seqrule <pre_dir <noentry_s
 	}
 };
 
-template <> struct nabu::rule <pre_source> : public seqrule <
+template <> struct nabu::rules::rule <pre_source> : public sequential <
 		pre_dir <source_str>,
 		delim_str <'@', false>
 	> {
@@ -713,7 +713,7 @@ template <> struct nabu::rule <pre_source> : public seqrule <
 	}
 };
 
-template <> struct nabu::rule <pre_rules> : public seqrule <pre_dir <rules_str>> {
+template <> struct nabu::rules::rule <pre_rules> : public sequential <pre_dir <rules_str>> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd);
 		if (!rptr)
@@ -723,7 +723,7 @@ template <> struct nabu::rule <pre_rules> : public seqrule <pre_dir <rules_str>>
 	}
 };
 
-template <> struct nabu::rule <pre_nojson> : public seqrule <pre_dir <nojson_str>> {
+template <> struct nabu::rules::rule <pre_nojson> : public sequential <pre_dir <nojson_str>> {
 	static ret value(Feeder *fd) {
 		ret rptr = _value(fd);
 		if (!rptr)
@@ -734,7 +734,7 @@ template <> struct nabu::rule <pre_nojson> : public seqrule <pre_dir <nojson_str
 	}
 };
 
-template <> struct nabu::rule <pre_project> : public seqrule <
+template <> struct nabu::rules::rule <pre_project> : public sequential <
 		pre_dir <project_str>,
 		identifier
 	> {
@@ -752,7 +752,7 @@ template <> struct nabu::rule <pre_project> : public seqrule <
 
 struct preprocessor {};
 template <>
-struct nabu::rule <preprocessor> : public multirule <
+struct nabu::rules::rule <preprocessor> : public multiplex <
 		pre_entry,
 		pre_noentry,
 		pre_source,
@@ -765,7 +765,7 @@ struct nabu::rule <preprocessor> : public multirule <
 // Unit penultimate rule
 struct unit {};
 
-template <> struct nabu::rule <unit> : public multirule <
+template <> struct nabu::rules::rule <unit> : public multiplex <
 		statement,
 		preprocessor,
 		// Error handling
@@ -775,7 +775,7 @@ template <> struct nabu::rule <unit> : public multirule <
 // Statement list (ultimate grammar)
 struct statement_list {};
 
-template <> struct nabu::rule <statement_list> : public kstar <skipper <unit>> {};
+template <> struct nabu::rules::rule <statement_list> : public kstar <skipper <unit>> {};
 
 // Set names
 set_name(term_star, term_star);

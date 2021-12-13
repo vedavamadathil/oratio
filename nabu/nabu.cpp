@@ -80,7 +80,7 @@ std::string nabu_out(const std::string &file)
 	ofstream fout;
 
 	// Read the source
-	ret rptr = rule <statement_list> ::value(&sf);
+	ret rptr = rules::rule <statement_list> ::value(&sf);
 	if (state.print_json)
 		std::cout << getrv(rptr).json() << std::endl;
 	
