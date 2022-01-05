@@ -73,7 +73,8 @@ struct State {
 		// Nabu built-in
 		{"identifier", "nabu::rules::identifier"},
 		{"word", "nabu::rules::word"},
-		{"space", "nabu::rules::space"}
+		{"space", "nabu::rules::space"},
+		{"epsilon", "nabu::rules::epsilon"}
 	};
 	
 	// Add tag and unresolved

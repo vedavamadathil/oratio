@@ -261,6 +261,11 @@ public:
 		_indices.push(cindex());
 	}
 
+	// Custom index
+	void checkpoint(int index) {
+		_indices.push(index);
+	}
+
 	// Restores state from checkpoint
 	void respawn() {
 		int c = cindex();
@@ -278,6 +283,22 @@ public:
 
 		_indices.pop();
 		return true;
+	}
+
+	// TODO: refactor checkpoint methods,
+	// and add a way to add named checkpoints
+
+	// Dump checkpoints
+	void dump_cps() {
+		auto cpy = _indices;
+		std::cout << "Checkpoint stack: ";
+		while (!cpy.empty()) {
+			int index = cpy.top();
+			cpy.pop();
+
+			std::cout << index << "\t";
+		}
+		std::cout << "\n";
 	}
 
 	// Read n characters
@@ -1321,7 +1342,7 @@ struct rule <lit <c>> {
 		if (n == c)
 			return ret(new Tret <char> (n));
 
-		return fd->abort();	// TODO: isnt this neof?
+		return fd->noef(n);
 	}
 };
 

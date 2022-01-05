@@ -1,0 +1,96 @@
+@project bf
+@entry main
+
+@source
+
+#include <cstdio>
+
+struct context {
+        char data[30000];
+        char *pointer = data;
+	int ignore = 0;	// Walk to the matching ']'
+
+	// Dump the contents of the data
+	void dump(int lim = 10) {
+		// Cell numbers
+		for (int i = 0; i < lim; i++)
+			std::cout << i << "\t";
+		std::cout << std::endl;
+		
+		// Values
+		for (int i = 0; i < lim; i++)
+			std::cout << (int) data[i] << "\t";
+		std::cout << std::endl;
+		
+		int index = (pointer - data);
+		
+		// Pointer to the current position
+		for (int i = 0; i < index; i++) std::cout << "\t";
+		std::cout << "^\n";
+	}
+} mctx;
+
+@rules
+
+move_next := '>' {
+		if (mctx.ignore == 0)
+			mctx.pointer++;
+		return _val;
+	}
+
+move_prev := '<' {
+		if (mctx.ignore == 0)
+			mctx.pointer--; // TODO: sys error when decrementing past 0
+		return _val;
+	}
+
+increment := '+' {
+		if (mctx.ignore == 0)
+			(*mctx.pointer)++;
+		return _val;
+	}
+
+decrement := '-' {
+		if (mctx.ignore == 0)
+			(*mctx.pointer)--;
+		return _val;
+	}
+
+
+print := '.' {
+		if (mctx.ignore == 0)
+			std::putchar(*(mctx.pointer));
+		return _val;
+	}
+
+read := ',' {
+		if (mctx.ignore == 0)
+			*(mctx.pointer) = getchar();
+		return _val;
+	}
+
+rbrace := '[' {
+		if (mctx.ignore) {
+			mctx.ignore++;
+		} else {
+			fd->checkpoint(fd->cindex() - 1);
+			if (*mctx.pointer == 0)
+				mctx.ignore++;
+		}
+		return _val;
+	}
+
+lbrace := ']' {
+		if (mctx.ignore == 0) {
+			if (*mctx.pointer != 0)
+				fd->respawn();
+			else
+				fd->erase_cp();
+		} else {
+			mctx.ignore--;			// TODO: make sure no preemptive ]
+		}
+		return _val;
+	}
+
+main := move_next | move_prev | increment | decrement
+	| print | read | rbrace | lbrace | char

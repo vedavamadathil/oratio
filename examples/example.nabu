@@ -1,0 +1,4 @@
+@project xyzwlang
+@entry sh_main
+
+sh_type := sh_type int | epsilon

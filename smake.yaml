@@ -20,7 +20,7 @@ targets:
       - valgrind: nabu_debug
       - leaks: nabu_debug
     - postbuilds:
-      - default: 'mkdir -p bin/ && {} -j -c example.nabu && mv example bin/'
+      - default: '{} -j examples/example.nabu'
       - gdb: 'gdb {}'
       - lldb: 'lldb {}'
       - valgrind: 'valgrind --leak-check=full --show-leak-kinds=all -- {} example.nabu'
