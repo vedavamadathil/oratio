@@ -2,3 +2,4 @@
 @entry sh_main
 
 sh_type := sh_type int | epsilon
+sh_main := sh_type

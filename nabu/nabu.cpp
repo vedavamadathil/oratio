@@ -7,6 +7,12 @@
 using namespace std;
 using namespace nabu;
 
+#ifndef NABU_HEADER_PATH
+
+#error Nabu header path was not specified
+
+#endif
+
 // State singleton
 State state;
 
@@ -38,7 +44,6 @@ std::string replace_tabs(const std::string &str)
 void warn_unresolved(Feeder *fd)
 {
 	// TODO: feeder method to extract a single line
-	// TODO: in the warning also show curly chars under the symbol
 
 	// Transfer unresolved symbols to vector
 	std::vector <std::pair <std::string, int>> unresolved(
@@ -191,9 +196,10 @@ int main(int argc, char *argv[])
 
 	// Compile if requested
 	if (ap.get_optn <bool> ("-c")) {
+		// TODO: make sure file is .nabu
 		std::string cmd = "g++ -std=c++11 -o "
 			+ filename.substr(0, filename.size() - 5)
-			+ " " + fout;
+			+ " " + fout + " -I " + NABU_HEADER_PATH;
 		system(cmd.c_str());
 
 		// Print location of the executable

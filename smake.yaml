@@ -4,7 +4,7 @@ builds:
   - nabu_release:
     - sources: nabu/nabu.cpp
     - idirs: .
-    - flags: '-std=c++11'
+    - flags: '-std=c++11 -DNABU_HEADER_PATH=\"$(dirname $(realpath nabu.hpp))\"'
   - nabu_debug:
     - sources: nabu/nabu.cpp
     - idirs: .
@@ -20,7 +20,7 @@ targets:
       - valgrind: nabu_debug
       - leaks: nabu_debug
     - postbuilds:
-      - default: '{} -j examples/example.nabu'
+      - default: '{} -c examples/example.nabu'
       - gdb: 'gdb {}'
       - lldb: 'lldb {}'
       - valgrind: 'valgrind --leak-check=full --show-leak-kinds=all -- {} example.nabu'
