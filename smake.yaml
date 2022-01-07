@@ -9,6 +9,9 @@ builds:
     - sources: nabu/nabu.cpp
     - idirs: .
     - flags: '-g, -std=c++11'
+  - explicit:
+    - sources: examples/explicit.cpp
+    - idirs: .
 
 targets:
   - nabu:
@@ -25,6 +28,11 @@ targets:
       - lldb: 'lldb {}'
       - valgrind: 'valgrind --leak-check=full --show-leak-kinds=all -- {} example.nabu'
       - leaks: 'leaks -atExit -- {} example.nabu'
+  - exp:
+    - builds:
+      - default: explicit
+    - postbuilds:
+      - default: '{}'
 
 installs:
   - nabu: 'sudo install .smake/targets/nabu /usr/local/bin'

@@ -47,6 +47,7 @@ public:
 using ret = std::shared_ptr <_ret>;
 
 // Custom to_string() function
+// TODO: why is this necessary
 template <class T>
 std::string to_string(const T& t)
 {
@@ -84,7 +85,7 @@ T get(ret rptr)
 {
 	// TODO: add a NABU_NO_RTTI macro
 	// to use dynamic cast here instead (for speed,
-	// may want to use this!)
+	// may want to use this!) -> throw if so
 	return ((Tret <T> *) rptr.get())->value;
 }
 
@@ -1675,7 +1676,7 @@ long double atof(Feeder *fd)
 	template <>					\
 	struct rule <type> {				\
 		static ret value(Feeder *fd) {		\
-			return aux <type> (fd);	\
+			return aux <type> (fd);		\
 		}					\
 	};
 
@@ -1732,6 +1733,128 @@ template_type_rule(float_rule, long double);
 
 }
 
+namespace parser {
+
+// Lexicon ID structure:
+//	accepts a rule	and then
+//	returns a (int) code value
+//	
+//	default returns -1
+template <class T>
+struct lexid {
+	static constexpr int value = -1;
+};
+
+// To set the ID, the
+// struct must be specialized
+
+// TODO: docs -> user should not need to this
+struct _lexvalue {
+	int id = -1;
+
+	_lexvalue(int v) : id(v) {}
+
+	// Since this is a base class
+	virtual ~_lexvalue() {}
+};
+
+// Lexicon value, defaults to empty (except ID)
+template <class T>
+struct lexvalue : public _lexvalue {
+	T value;
+
+	lexvalue(T a, int b) : _lexvalue(b), value(a) {}
+};
+
+// Shared pointer alias
+using lexicon = std::shared_ptr <_lexvalue>;
+
+// Overload get for lexicons
+template <class T>
+T get(lexicon lptr)
+{
+	// TODO: same NABU_NO_RTTI dilemma here
+	return ((lexvalue <T> *) lptr.get())->value;
+}
+
+// Lexer action to return a specific type
+template <class T>
+struct lexaction {
+	// By default, there is no custom return
+	static constexpr bool overloaded = false;
+
+	// TODO: docs -> if overloaded is set to true,
+	// then there should be an overloaded, corresponding function
+	
+	static lexicon action(ret rptr, int id) {
+		return nullptr;
+	}
+
+	// the id provided is lexid <T> ::value
+};
+
+// Try lexicon
+//	can be overloaded to return
+//	better structures
+template <class T>
+inline lexicon lexer(Feeder *fd)
+{
+	ret rptr = rules::rule <T> ::value(fd);
+	if (rptr) {
+		if (lexaction <T> ::overloaded) {
+			return lexaction <T> ::action(
+				rptr, lexid <T> ::value
+			);
+		} else {
+			return lexicon(new _lexvalue {
+				lexid <T> ::value
+			});
+		}
+	}
+	
+	return nullptr;
+}
+
+// Expand to return arithmetic types
+#define template_type_lexer(T)					\
+	template <>						\
+	struct lexaction <T> {					\
+		static constexpr bool overloaded = true;	\
+								\
+		static lexicon action(ret rptr, int id) {	\
+			return lexicon(new lexvalue <T> {	\
+				get <T> (rptr),	id		\
+			});					\
+		}						\
+	}
+
+template_type_lexer(short int);
+template_type_lexer(int);
+template_type_lexer(long int);
+template_type_lexer(long long int);
+
+template_type_lexer(float);
+template_type_lexer(double);
+template_type_lexer(long double);
+
+// Make sure skippers use the same lexactions
+template <class T>
+struct lexaction <rules::skipper <T>> {
+	// If the underlying type has no action, don't bother
+	static constexpr bool overloaded = lexaction <T> ::overloaded;
+
+	static lexicon action(ret rptr, int id) {
+		if (lexaction <T> ::overloaded) {
+			// TODO: provide a compiler error if no lexaction <T> ?
+			return lexaction <T> ::action(rptr, id);
+		}
+
+		return nullptr;
+	}
+};
+
+}
+
 }
 
 // Macro for name generation
@@ -1748,5 +1871,16 @@ set_name(nabu::rules::word, word);
 set_name(nabu::rules::identifier, identifier);
 set_name(nabu::rules::cstr, cstr);
 set_name(nabu::rules::cchar, cchar);
+
+// Macro for lexid generation
+#define set_id(T, id)					\
+	template <>					\
+	struct nabu::parser::lexid <T> {		\
+		static constexpr int value = id;	\
+	};
+
+// #define set_nid(T) to set id to incremented value
+
+// TODO: add counter macro & template
 
 #endif
