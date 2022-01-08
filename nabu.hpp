@@ -29,6 +29,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <queue>
 #include <set>
 #include <stack>
 #include <string>
@@ -1200,10 +1201,10 @@ struct space {};
 
 // Generic space skipper wrapper
 template <class T>
-struct skipper;
+struct skipper {};
 
 template <class T>
-struct skipper_no_nl;
+struct skipper_no_nl {};
 
 // Literal parser classes
 template <char c>
@@ -1756,6 +1757,11 @@ struct _lexvalue {
 
 	// Since this is a base class
 	virtual ~_lexvalue() {}
+
+	// Convert to string
+	virtual std::string str() const {
+		return "(id: " + std::to_string(id) + ")";
+	}
 };
 
 // Lexicon value, defaults to empty (except ID)
@@ -1764,6 +1770,26 @@ struct lexvalue : public _lexvalue {
 	T value;
 
 	lexvalue(T a, int b) : _lexvalue(b), value(a) {}
+
+	// convert to string
+	std::string str() const override {
+		return "(value: " + std::to_string(value)
+			+ ", id: " + std::to_string(this->id) + ")";
+	}
+};
+
+// Specialize str() for string
+template <>
+struct lexvalue <std::string> : public _lexvalue {
+	std::string value;
+
+	lexvalue(std::string a, int b) : _lexvalue(b), value(a) {}
+
+	// convert to string
+	std::string str() const override {
+		return "(value: " + value + ", id: "
+			+ std::to_string(this->id) + ")";
+	}
 };
 
 // Shared pointer alias
@@ -1837,6 +1863,22 @@ template_type_lexer(float);
 template_type_lexer(double);
 template_type_lexer(long double);
 
+#define template_type_lexer_alias(T, C)				\
+	template <>						\
+	struct lexaction <T> {					\
+		static constexpr bool overloaded = true;	\
+								\
+		static lexicon action(ret rptr, int id) {	\
+			return lexicon(new lexvalue <C> {	\
+				get <C> (rptr),	id		\
+			});					\
+		}						\
+	}
+
+// For string and identifier
+template_type_lexer_alias(std::string, std::string);
+template_type_lexer_alias(rules::identifier, std::string);
+
 // Make sure skippers use the same lexactions
 template <class T>
 struct lexaction <rules::skipper <T>> {
@@ -1852,6 +1894,92 @@ struct lexaction <rules::skipper <T>> {
 		return nullptr;
 	}
 };
+
+// All parsers are run with a queue of tokens
+using Queue = std::queue <lexicon>;
+
+// List of all lexical rules
+template <class T>
+struct LexList {
+	// Set to true if this is the end of the list
+	static constexpr bool tail = true;
+
+	// Next type for next lexical rule
+	using next = void;
+};
+
+// Sets a link from type A -> B in the LextList
+#define LexList_next(A, B)				\
+	template <>					\
+	struct nabu::parser::LexList <A> {		\
+		static constexpr bool tail = false;	\
+		using next = B;				\
+	};
+
+// Process function for lexq
+template <class T>
+void _lexq_process(Queue &q, Feeder *fd)
+{
+	// TODO: error when fd is not done
+	// and failure to lex
+	lexicon lptr = lexer <T> (fd);
+	if (lptr) {
+		q.push(lptr);
+
+		// If there is another lexrule in
+		// _head's current list, process that
+		if (!LexList <T> ::tail)
+			_lexq_process <typename LexList <T> ::next> (q, fd);
+	}
+
+	// TODO: insert a lexicon with id = -1 for EOF/EOL ($)?
+	//	unless the fd isnt done, in which case error (throw?)
+}
+
+// Create the queue of lexicons from a
+// compile time list of available tokens
+// 
+// Uses the fisrt successful lexicon in each stage
+//
+// T is the head of the LexList, the first element
+template <class T>
+Queue lexq(Feeder *fd)
+{
+	Queue queue;
+	_lexq_process <T> (queue, fd);
+	return queue;
+}
+
+// Parse actions will be a concept
+// regardless of the parsing algorithm
+template <class T>
+struct ParseAction {
+	// TODO: what is the input?
+	void operator()() {}
+};
+
+// A grammar becomes a sequence of lexicon IDs
+
+// Parser using recursive descent
+namespace rd {
+
+// Must redefine the alias to start
+using _start_type = void;
+
+// Ensures that the first token
+// has the same id as lexid <_start_type>
+//	if so, it will execute the
+//	start action for _start_type
+void parse(Queue &tokens)
+{
+	// Fisrt token
+	lexicon lptr = tokens.front();
+
+	if (lptr->id == lexid <_start_type> ::value)
+		ParseAction <_start_type> ();	// TODO: should it take id or type?
+}
+
+}
 
 }
 

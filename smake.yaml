@@ -12,6 +12,10 @@ builds:
   - explicit:
     - sources: examples/explicit.cpp
     - idirs: .
+  - explicit_debug:
+    - sources: examples/explicit.cpp
+    - idirs: .
+    - flags: '-g, -std=c++11'
 
 targets:
   - nabu:
@@ -29,10 +33,13 @@ targets:
       - valgrind: 'valgrind --leak-check=full --show-leak-kinds=all -- {} example.nabu'
       - leaks: 'leaks -atExit -- {} example.nabu'
   - exp:
+    - modes: gdb
     - builds:
       - default: explicit
+      - gdb: explicit_debug
     - postbuilds:
       - default: '{}'
+      - gdb: 'gdb {}'
 
 installs:
   - nabu: 'sudo install .smake/targets/nabu /usr/local/bin'

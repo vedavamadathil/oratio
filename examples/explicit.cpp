@@ -2,25 +2,34 @@
 
 using namespace nabu;
 
-StringFeeder sf = R"(123 456)";
+StringFeeder sf = R"(identifier 456)";
 
-struct myrule {};
+using myident = rules::skipper <rules::identifier>;
+using mynumber = rules::skipper <int>;
 
-template <>
-struct rules::rule <myrule> : public rules::rule <
-                rules::skipper <int>
-        > {};
-
-set_id(myrule, 1);
+LexList_next(myident, mynumber);
 
 int main()
 {
-        // ret rptr = rules::kstar <myrule> ::value(&sf);
-        // std::cout << getrv(rptr).json() << std::endl;
+	// ret rptr = rules::kstar <myrule> ::value(&sf);
+	// std::cout << getrv(rptr).json() << std::endl;
 
-        parser::lexicon lptr;
-        lptr = parser::lexer <rules::skipper <int>> (&sf);
-        std::cout << "Code [1]: " << lptr->id << ": " << get <int> (lptr) << std::endl;
-        lptr = parser::lexer <rules::skipper <int>> (&sf);
-        std::cout << "Code [2]: " << lptr->id << ": " << get <int> (lptr) << std::endl;
+	/* parser::lexicon lptr;
+	lptr = parser::lexer <rules::skipper <rules::identifier>> (&sf);
+	std::cout << "Code [1]: " << lptr->str() << std::endl;
+	lptr = parser::lexer <rules::skipper <int>> (&sf);
+	std::cout << "Code [2]: " << lptr->str() << std::endl; */
+
+	/* std::cout << typeid(parser::LexList <myident> ::next).name() << std::endl;
+	std::cout << typeid(parser::LexList <mynumber> ::next).name() << std::endl;
+	std::cout << typeid(parser::LexList <void> ::next).name() << std::endl; */
+
+	parser::Queue queue = parser::lexq <myident> (&sf);
+	
+	std::cout << "Queue items:\n";
+	while (!queue.empty()) {
+		parser::lexicon lptr = queue.front();
+		queue.pop();
+		std::cout << "\tlexicon: " << lptr->str() << std::endl;
+	}
 }
