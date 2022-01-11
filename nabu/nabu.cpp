@@ -199,7 +199,7 @@ int main(int argc, char *argv[])
 		// TODO: make sure file is .nabu
 		std::string cmd = "g++ -std=c++11 -o "
 			+ filename.substr(0, filename.size() - 5)
-			+ " " + fout + " -I " + NABU_HEADER_PATH;
+			+ " " + fout + ".o -I " + NABU_HEADER_PATH;
 		system(cmd.c_str());
 
 		// Print location of the executable

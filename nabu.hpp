@@ -25,11 +25,11 @@
 #define NABU_H_
 
 // Standard headers
+#include <deque>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <memory>
-#include <queue>
 #include <set>
 #include <stack>
 #include <string>
@@ -50,7 +50,7 @@ using ret = std::shared_ptr <_ret>;
 // Custom to_string() function
 // TODO: why is this necessary
 template <class T>
-std::string to_string(const T& t)
+inline std::string convert_string(const T& t)
 {
 	return std::to_string(t);
 }
@@ -1551,7 +1551,7 @@ struct rule <identifier> {
 			return ret(new Tret <std::string> (str));
 		}
 
-		return fd->abort();
+		return fd->noef(n);
 	}
 };
 
@@ -1606,7 +1606,7 @@ unsigned long long int atoi(Feeder *fd)
 		c = fd->next();
 	}
 
-	fd->backup();
+	fd->noef(c);
 	return x;
 }
 
@@ -1677,6 +1677,8 @@ long double atof(Feeder *fd)
 	template <>					\
 	struct rule <type> {				\
 		static ret value(Feeder *fd) {		\
+			if (fd->getc() == EOF)		\
+				return nullptr;		\
 			return aux <type> (fd);		\
 		}					\
 	};
@@ -1749,6 +1751,15 @@ struct lexid {
 // To set the ID, the
 // struct must be specialized
 
+// Macro for lexid generation
+#define set_id(T, id)					\
+	template <>					\
+	struct nabu::parser::lexid <T> {		\
+		static constexpr int value = id;	\
+	};
+
+// #define set_nid(T) to set id to incremented value
+
 // TODO: docs -> user should not need to this
 struct _lexvalue {
 	int id = -1;
@@ -1773,8 +1784,8 @@ struct lexvalue : public _lexvalue {
 
 	// convert to string
 	std::string str() const override {
-		return "(value: " + std::to_string(value)
-			+ ", id: " + std::to_string(this->id) + ")";
+		return "(id: " + convert_string(this->id)
+			+ ", value: " + convert_string(value) + ")";
 	}
 };
 
@@ -1787,13 +1798,19 @@ struct lexvalue <std::string> : public _lexvalue {
 
 	// convert to string
 	std::string str() const override {
-		return "(value: " + value + ", id: "
-			+ std::to_string(this->id) + ")";
+		return "(id: " + convert_string(this->id)
+			+ ", value: " + value + ")";
 	}
 };
 
 // Shared pointer alias
 using lexicon = std::shared_ptr <_lexvalue>;
+
+// Vector of lexvalues
+using lexvec = lexvalue <std::vector <lexicon>>;
+
+// Predefined lexids
+set_id(std::vector <lexicon>, 0);
 
 // Overload get for lexicons
 template <class T>
@@ -1896,7 +1913,7 @@ struct lexaction <rules::skipper <T>> {
 };
 
 // All parsers are run with a queue of tokens
-using Queue = std::queue <lexicon>;
+using Queue = std::deque <lexicon>;
 
 // List of all lexical rules
 template <class T>
@@ -1916,24 +1933,37 @@ struct LexList {
 		using next = B;				\
 	};
 
+// Lex using a LexList
+template <class Head>
+inline lexicon _lexq_process_single(Feeder *fd)
+{
+	lexicon lptr = lexer <Head> (fd);
+	if (lptr)
+		return lptr;
+
+	// Try the next lexical rule if available
+	if (LexList <Head> ::tail)
+		return nullptr;
+	
+	return _lexq_process_single <typename LexList <Head> ::next> (fd);
+}
+
 // Process function for lexq
 template <class T>
 void _lexq_process(Queue &q, Feeder *fd)
 {
-	// TODO: error when fd is not done
-	// and failure to lex
-	lexicon lptr = lexer <T> (fd);
-	if (lptr) {
-		q.push(lptr);
+	// Read until failure
+	lexicon lptr;
 
-		// If there is another lexrule in
-		// _head's current list, process that
-		if (!LexList <T> ::tail)
-			_lexq_process <typename LexList <T> ::next> (q, fd);
+	while (true) {
+		lptr = _lexq_process_single <T> (fd);
+		if (lptr)
+			q.push_back(lptr);
+		else
+			break;
 	}
 
-	// TODO: insert a lexicon with id = -1 for EOF/EOL ($)?
-	//	unless the fd isnt done, in which case error (throw?)
+	// TODO: if feeder is not done, then throw an error
 }
 
 // Create the queue of lexicons from a
@@ -1958,29 +1988,101 @@ struct ParseAction {
 	void operator()() {}
 };
 
-// A grammar becomes a sequence of lexicon IDs
-
 // Parser using recursive descent
 namespace rd {
 
-// Must redefine the alias to start
-using _start_type = void;
+// A grammar becomes a sequence of lexicon types
+//	uses the lexid to compare with the lexicons
+template <class ... Args>
+struct grammar {
+	static lexicon value(Queue &q) {
+		return nullptr;
+	}
+};
 
-// Ensures that the first token
-// has the same id as lexid <_start_type>
-//	if so, it will execute the
-//	start action for _start_type
-void parse(Queue &tokens)
+// Recursion for grammar
+template <class T, class ... Args>
+struct grammar <T, Args...> {
+	// Process function
+	static bool _process(std::vector <lexicon> &v, Queue &q) {
+		lexicon lptr = grammar <T> ::value(q);
+		if (lptr) {
+			v.push_back(lptr);
+
+			if (grammar <Args...> ::_process(v, q))
+				return true;
+		}
+
+		// The vector will still have the elements
+		// that were successfully parsed, but we
+		// need to restore the queue
+		q.push_front(lptr);
+
+		return false;
+	}
+
+	// Default grammar
+	static lexicon value(Queue &q) {
+		// Note that since the id does not matter
+		// for RD parsing, we can use a random id
+		std::vector <lexicon> v;
+		if (_process(v, q)) {
+			return lexicon(new lexvec(
+				v, lexid <decltype(v)> ::value
+			));
+		}
+
+		return nullptr;
+	}
+};
+
+// Single element returns a single lexicon
+template <class T>
+struct grammar <T> {
+	// Process function
+	static bool _process(std::vector <lexicon> &v, Queue &q) {
+		lexicon lptr = q.front();
+		if (lptr && lptr->id == lexid <T> ::value) {
+			v.push_back(lptr);
+			q.pop_front();
+
+			return true;
+		}
+
+		return false;
+	}
+
+	// Default grammar
+	static lexicon value(Queue &q) {
+		lexicon lptr = q.front();
+		if (lptr && lptr->id == lexid <T> ::value) {
+			q.pop_front();
+			return lptr;
+		}
+
+		return nullptr;
+	}
+};
+
+// TODO: parser function is a wrapper with debugging
+
+}
+
+}
+
+// Overload convert string for lexvec
+template <>
+inline std::string convert_string <std::vector <parser::lexicon>>
+		(const std::vector <parser::lexicon> &v)
 {
-	// Fisrt token
-	lexicon lptr = tokens.front();
+	std::string s = "{";
+	for (int i = 0; i < v.size(); i++) {
+		s += v[i]->str();
+		if (i != v.size() - 1)
+			s += ", ";
+	}
 
-	if (lptr->id == lexid <_start_type> ::value)
-		ParseAction <_start_type> ();	// TODO: should it take id or type?
-}
-
-}
-
+	return s + "}";
 }
 
 }
@@ -2000,14 +2102,7 @@ set_name(nabu::rules::identifier, identifier);
 set_name(nabu::rules::cstr, cstr);
 set_name(nabu::rules::cchar, cchar);
 
-// Macro for lexid generation
-#define set_id(T, id)					\
-	template <>					\
-	struct nabu::parser::lexid <T> {		\
-		static constexpr int value = id;	\
-	};
-
-// #define set_nid(T) to set id to incremented value
+// TODO: name should be inside the nabu generic namespace
 
 // TODO: add counter macro & template
 

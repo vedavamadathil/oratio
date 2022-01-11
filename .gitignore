@@ -1,9 +1,10 @@
 *.log
 *.nabu.cpp
 *.nabu.hpp
+*.o
 *.out
+.cache
 .smake
 .vscode
 bin
-# Executables
-examples/example
+compile_commands.json
