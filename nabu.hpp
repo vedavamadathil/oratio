@@ -1904,25 +1904,31 @@ inline std::regex compile()
 template <class Head>
 parser::lexicon match(std::sregex_iterator &it, int index = 0)
 {
+	// Alias to keep things clean
+	using Node = token <Head>;
+	using Next = typename lexlist <Head> ::next;
+
 	// If the next one is not empty, we have reached
 	if (it->str(index + 1).size() > 0) {
-		if (token <Head> ::overloaded) {
+		if (Node::overloaded) {
 			return parser::lexicon(new parser::lexvalue
-				<typename token <Head> ::cast_type> (
-					token <Head> ::cast(it->str(index + 1)),
-					token <Head> ::id
+				<typename Node::cast_type> (
+					Node::cast(it->str(index + 1)),
+					Node::id
 				)
 			);
 		} else {
-			return parser::lexicon(new parser::_lexvalue(
-				token <Head> ::id
-			));
+			return parser::lexicon(
+				new parser::_lexvalue(
+					Node::id
+				)
+			);
 		}
 	}
 	
 	// Walk the list of tokens (if any left)
 	if (!lexlist <Head> ::tail)
-		return match <typename lexlist <Head> ::next> (it, index + 1);
+		return match <Next> (it, index + 1);
 
 	return nullptr;
 }
@@ -1948,6 +1954,79 @@ Queue lexq(const std::string &source)
 
 // Parser using recursive descent
 namespace rd {
+
+// A grammar becomes a sequence of lexicon types
+//	uses the lexid to compare with the lexicons
+template <class ... Args>
+struct grammar {
+	static lexicon value(Queue &q) {
+		return nullptr;
+	}
+};
+
+// Recursion for grammar
+template <class T, class ... Args>
+struct grammar <T, Args...> {
+	// Process function
+	static bool _process(std::vector <lexicon> &v, Queue &q) {
+		lexicon lptr = grammar <T> ::value(q);
+		if (lptr) {
+			v.push_back(lptr);
+
+			if (grammar <Args...> ::_process(v, q))
+				return true;
+		}
+
+		// The vector will still have the elements
+		// that were successfully parsed, but we
+		// need to restore the queue
+		q.push_front(lptr);
+
+		return false;
+	}
+
+	// Default grammar
+	static lexicon value(Queue &q) {
+		// Note that since the id does not matter
+		// for RD parsing, we can use a random id
+		std::vector <lexicon> v;
+		if (_process(v, q)) {
+			return lexicon(new lexvec(
+				v, token <decltype(v)> ::id
+			));
+		}
+
+		return nullptr;
+	}
+};
+
+// Single element returns a single lexicon
+template <class T>
+struct grammar <T> {
+	// Process function
+	static bool _process(std::vector <lexicon> &v, Queue &q) {
+		lexicon lptr = q.front();
+		if (lptr && lptr->id == token <T> ::id) {
+			v.push_back(lptr);
+			q.pop_front();
+
+			return true;
+		}
+
+		return false;
+	}
+
+	// Default grammar
+	static lexicon value(Queue &q) {
+		lexicon lptr = q.front();
+		if (lptr && lptr->id == token <T> ::id) {
+			q.pop_front();
+			return lptr;
+		}
+
+		return nullptr;
+	}
+};
 
 }
 
