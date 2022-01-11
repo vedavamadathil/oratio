@@ -30,6 +30,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <regex>
 #include <set>
 #include <stack>
 #include <string>
@@ -1738,25 +1739,65 @@ template_type_rule(float_rule, long double);
 
 namespace parser {
 
-// Lexicon ID structure:
-//	accepts a rule	and then
-//	returns a (int) code value
-//	
-//	default returns -1
+// Holds lexing information for a single lexical token
 template <class T>
-struct lexid {
-	static constexpr int value = -1;
+struct token {
+	static constexpr int id = -1;
+	static constexpr const char *regex = "";
+	static constexpr bool overloaded = false;
+
+	// Returns type of cast
+	using cast_type = int;
+
+	static cast_type cast(const std::string &s) {
+		return 0;
+	}
 };
 
-// To set the ID, the
-// struct must be specialized
-
-// Macro for lexid generation
-#define set_id(T, id)					\
-	template <>					\
-	struct nabu::parser::lexid <T> {		\
-		static constexpr int value = id;	\
+// Token with a regex (dummy)
+#define mk_id(T, value)							\
+	template <>							\
+	struct nabu::parser::token <T> {				\
+		static constexpr int id = value;			\
+		static constexpr const char *regex = "";		\
+		static constexpr bool overloaded = false;		\
+									\
+		using cast_type = int;					\
+									\
+		static cast_type cast(const std::string &s) {		\
+			return 0;					\
+		}							\
 	};
+
+#define mk_token(T, value, str)						\
+	template <>							\
+	struct nabu::parser::token <T> {				\
+		static constexpr int id = value;			\
+		static constexpr const char *regex = str;		\
+		static constexpr bool overloaded = false;		\
+									\
+		using cast_type = int;					\
+									\
+		static cast_type cast(const std::string &s) {		\
+			return 0;					\
+		}							\
+	};
+
+#define mk_overloaded_token(T, value, str, R, ftn)			\
+	template <>							\
+	struct nabu::parser::token <T> {				\
+		static constexpr int id = value;			\
+		static constexpr const char *regex = str;		\
+									\
+		static constexpr bool overloaded = true;		\
+									\
+		using cast_type = R;					\
+									\
+		static cast_type cast(const std::string &s) {		\
+			return ftn(s);					\
+		}							\
+	};
+
 
 // #define set_nid(T) to set id to incremented value
 
@@ -1809,8 +1850,11 @@ using lexicon = std::shared_ptr <_lexvalue>;
 // Vector of lexvalues
 using lexvec = lexvalue <std::vector <lexicon>>;
 
+// Queue of lexicons (for parsers)
+using Queue = std::deque <lexicon>;
+
 // Predefined lexids
-set_id(std::vector <lexicon>, 0);
+mk_id(std::vector <lexicon>, 0);
 
 // Overload get for lexicons
 template <class T>
@@ -1820,251 +1864,90 @@ T get(lexicon lptr)
 	return ((lexvalue <T> *) lptr.get())->value;
 }
 
-// Lexer action to return a specific type
+// Defines the sequence of lexical rules
 template <class T>
-struct lexaction {
-	// By default, there is no custom return
-	static constexpr bool overloaded = false;
-
-	// TODO: docs -> if overloaded is set to true,
-	// then there should be an overloaded, corresponding function
-	
-	static lexicon action(ret rptr, int id) {
-		return nullptr;
-	}
-
-	// the id provided is lexid <T> ::value
-};
-
-// Try lexicon
-//	can be overloaded to return
-//	better structures
-template <class T>
-inline lexicon lexer(Feeder *fd)
-{
-	ret rptr = rules::rule <T> ::value(fd);
-	if (rptr) {
-		if (lexaction <T> ::overloaded) {
-			return lexaction <T> ::action(
-				rptr, lexid <T> ::value
-			);
-		} else {
-			return lexicon(new _lexvalue {
-				lexid <T> ::value
-			});
-		}
-	}
-	
-	return nullptr;
-}
-
-// Expand to return arithmetic types
-#define template_type_lexer(T)					\
-	template <>						\
-	struct lexaction <T> {					\
-		static constexpr bool overloaded = true;	\
-								\
-		static lexicon action(ret rptr, int id) {	\
-			return lexicon(new lexvalue <T> {	\
-				get <T> (rptr),	id		\
-			});					\
-		}						\
-	}
-
-template_type_lexer(short int);
-template_type_lexer(int);
-template_type_lexer(long int);
-template_type_lexer(long long int);
-
-template_type_lexer(float);
-template_type_lexer(double);
-template_type_lexer(long double);
-
-#define template_type_lexer_alias(T, C)				\
-	template <>						\
-	struct lexaction <T> {					\
-		static constexpr bool overloaded = true;	\
-								\
-		static lexicon action(ret rptr, int id) {	\
-			return lexicon(new lexvalue <C> {	\
-				get <C> (rptr),	id		\
-			});					\
-		}						\
-	}
-
-// For string and identifier
-template_type_lexer_alias(std::string, std::string);
-template_type_lexer_alias(rules::identifier, std::string);
-
-// Make sure skippers use the same lexactions
-template <class T>
-struct lexaction <rules::skipper <T>> {
-	// If the underlying type has no action, don't bother
-	static constexpr bool overloaded = lexaction <T> ::overloaded;
-
-	static lexicon action(ret rptr, int id) {
-		if (lexaction <T> ::overloaded) {
-			// TODO: provide a compiler error if no lexaction <T> ?
-			return lexaction <T> ::action(rptr, id);
-		}
-
-		return nullptr;
-	}
-};
-
-// All parsers are run with a queue of tokens
-using Queue = std::deque <lexicon>;
-
-// List of all lexical rules
-template <class T>
-struct LexList {
-	// Set to true if this is the end of the list
+struct lexlist {
 	static constexpr bool tail = true;
-
-	// Next type for next lexical rule
+	
 	using next = void;
 };
 
-// Sets a link from type A -> B in the LextList
-#define LexList_next(A, B)				\
+#define lexlist_next(A, B) 				\
 	template <>					\
-	struct nabu::parser::LexList <A> {		\
+	struct nabu::parser::lexlist <A> {		\
 		static constexpr bool tail = false;	\
 		using next = B;				\
 	};
 
-// Lex using a LexList
+// Concatenate regex for a set of lexical rules (lexlist)
+template <class T>
+std::string concat()
+{
+	std::string result = "(" + std::string(token <T> ::regex) + ")";
+	if (!lexlist <T> ::tail)
+		result += "|" + concat <typename lexlist <T> ::next> ();
+	return result;
+}
+
+// Compile the regex for a set of lexical rules
 template <class Head>
-inline lexicon _lexq_process_single(Feeder *fd)
+inline std::regex compile()
 {
-	lexicon lptr = lexer <Head> (fd);
-	if (lptr)
-		return lptr;
-
-	// Try the next lexical rule if available
-	if (LexList <Head> ::tail)
-		return nullptr;
-	
-	return _lexq_process_single <typename LexList <Head> ::next> (fd);
+	return std::regex(
+		concat <Head> (),
+		std::regex::extended 
+			| std::regex::optimize
+	);
 }
 
-// Process function for lexq
-template <class T>
-void _lexq_process(Queue &q, Feeder *fd)
+// Convert a matched token to its token value
+template <class Head>
+parser::lexicon match(std::sregex_iterator &it, int index = 0)
 {
-	// Read until failure
-	lexicon lptr;
-
-	while (true) {
-		lptr = _lexq_process_single <T> (fd);
-		if (lptr)
-			q.push_back(lptr);
-		else
-			break;
+	// If the next one is not empty, we have reached
+	if (it->str(index + 1).size() > 0) {
+		if (token <Head> ::overloaded) {
+			return parser::lexicon(new parser::lexvalue
+				<typename token <Head> ::cast_type> (
+					token <Head> ::cast(it->str(index + 1)),
+					token <Head> ::id
+				)
+			);
+		} else {
+			return parser::lexicon(new parser::_lexvalue(
+				token <Head> ::id
+			));
+		}
 	}
+	
+	// Walk the list of tokens (if any left)
+	if (!lexlist <Head> ::tail)
+		return match <typename lexlist <Head> ::next> (it, index + 1);
 
-	// TODO: if feeder is not done, then throw an error
+	return nullptr;
 }
 
-// Create the queue of lexicons from a
-// compile time list of available tokens
-// 
-// Uses the fisrt successful lexicon in each stage
-//
-// T is the head of the LexList, the first element
-template <class T>
-Queue lexq(Feeder *fd)
+// Lexes a string and returns a queue of tokens
+template <class Head>
+Queue lexq(const std::string &source)
 {
-	Queue queue;
-	_lexq_process <T> (queue, fd);
-	return queue;
-}
+	std::regex re = compile <Head> ();
 
-// Parse actions will be a concept
-// regardless of the parsing algorithm
-template <class T>
-struct ParseAction {
-	// TODO: what is the input?
-	void operator()() {}
-};
+	std::sregex_iterator begin(source.begin(), source.end(), re);
+	std::sregex_iterator end;
+
+	Queue q;
+	for (auto it = begin; it != end; it++) {
+		std::smatch m = *it;
+		parser::lexicon lptr = match <Head> (it);
+		q.push_back(lptr);
+	}
+	
+	return q;
+}
 
 // Parser using recursive descent
 namespace rd {
-
-// A grammar becomes a sequence of lexicon types
-//	uses the lexid to compare with the lexicons
-template <class ... Args>
-struct grammar {
-	static lexicon value(Queue &q) {
-		return nullptr;
-	}
-};
-
-// Recursion for grammar
-template <class T, class ... Args>
-struct grammar <T, Args...> {
-	// Process function
-	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		lexicon lptr = grammar <T> ::value(q);
-		if (lptr) {
-			v.push_back(lptr);
-
-			if (grammar <Args...> ::_process(v, q))
-				return true;
-		}
-
-		// The vector will still have the elements
-		// that were successfully parsed, but we
-		// need to restore the queue
-		q.push_front(lptr);
-
-		return false;
-	}
-
-	// Default grammar
-	static lexicon value(Queue &q) {
-		// Note that since the id does not matter
-		// for RD parsing, we can use a random id
-		std::vector <lexicon> v;
-		if (_process(v, q)) {
-			return lexicon(new lexvec(
-				v, lexid <decltype(v)> ::value
-			));
-		}
-
-		return nullptr;
-	}
-};
-
-// Single element returns a single lexicon
-template <class T>
-struct grammar <T> {
-	// Process function
-	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		lexicon lptr = q.front();
-		if (lptr && lptr->id == lexid <T> ::value) {
-			v.push_back(lptr);
-			q.pop_front();
-
-			return true;
-		}
-
-		return false;
-	}
-
-	// Default grammar
-	static lexicon value(Queue &q) {
-		lexicon lptr = q.front();
-		if (lptr && lptr->id == lexid <T> ::value) {
-			q.pop_front();
-			return lptr;
-		}
-
-		return nullptr;
-	}
-};
-
-// TODO: parser function is a wrapper with debugging
 
 }
 

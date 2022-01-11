@@ -4,83 +4,15 @@ using namespace nabu;
 
 std::string source = R"(identifier identifier 456)";
 
-StringFeeder feeder(source);
-
 using myident = rules::skipper <rules::identifier>;
 using mynumber = rules::skipper <int>;
 
-LexList_next(myident, mynumber);
-
-set_id(myident, 1);
-set_id(mynumber, 2);
-
-#include <regex>
-
-template <class T>
-struct token {
-	static constexpr int id = -1;
-	static constexpr const char *regex = "";
-};
-
-#define mk_token(T, value, str)					\
-	template <>						\
-	struct token <T> {					\
-		static constexpr int id = value;		\
-		static constexpr const char *regex = str;	\
-	};
+int to_int(const std::string &s) {return std::atoi(s.c_str());}
 
 mk_token(myident, 1, "[a-z]+");
-mk_token(mynumber, 2, "[0-9]+");
-
-template <class T>
-struct LexList {
-	static constexpr bool tail = true;
-	
-	using next = void;
-};
-
-#define lexlist_next(A, B) 				\
-	template <>					\
-	struct LexList <A> {				\
-		static constexpr bool tail = false;	\
-		using next = B;				\
-	};
+mk_overloaded_token(mynumber, 2, "[0-9]+", int, to_int);
 
 lexlist_next(myident, mynumber);
-
-template <class T>
-std::string concat()
-{
-	std::string result = "(" + std::string(token <T> ::regex) + ")";
-	if (!LexList <T> ::tail)
-		result += "|" + concat <typename LexList <T> ::next> ();
-	return result;
-}
-
-template <class Head>
-std::regex compile()
-{
-	return std::regex(
-		concat <Head> (),
-		std::regex::extended 
-			| std::regex::optimize
-	);
-}
-
-template <class Head>
-nabu::ret match(std::sregex_iterator &it, int index = 0)
-{
-	// If the next one is empty, we have reached
-	if (it->str(index + 1).empty()) {
-		std::cout << "LexList index " << index << " -> Head = " << typeid(Head).name() << "\n";
-	}
-	
-	// Walk the list of tokens (if any left)
-	if (!LexList <Head> ::tail)
-		return match <typename LexList <Head> ::next> (it, index + 1);
-
-	return nullptr;
-}
 
 int main()
 {
@@ -117,7 +49,7 @@ int main()
 	std::cout << "Code: " << lptr.get() << " -> " << queue.size() << std::endl;
 	std::cout << "\tlptr = " << lptr->str() << std::endl; */
 
-	std::cout << "Source: " << source << std::endl;
+	/* std::cout << "Source: " << source << std::endl;
 	std::cout << "Regex: " << concat <myident> () << std::endl;
 
 	std::regex re = compile <myident> ();
@@ -128,7 +60,15 @@ int main()
 	std::cout << "Matches:\n";
 	for (auto it = begin; it != end; it++) {
 		std::smatch m = *it;
-		std::cout << "\tMatch: " << m.str() << std::endl;
-		match <myident> (it);
+		parser::lexicon lptr = match <myident> (it);
+		std::cout << "\t\tlptr = " << lptr->str() << std::endl;
+	} */
+
+	parser::Queue q = parser::lexq <myident> (source);
+	while (!q.empty()) {
+		parser::lexicon lptr = q.front();
+		q.pop_front();
+
+		std::cout << "Lexicon: " << lptr->str() << std::endl;
 	}
 }
