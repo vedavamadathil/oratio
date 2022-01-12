@@ -39,6 +39,41 @@
 
 namespace nabu {
 
+namespace cc {		// Compile-time utilities
+
+// TODO: add nabu prefixes, because this namespace is being
+// put in the global space
+
+template <std::size_t n>
+struct constant_index : std::integral_constant <std::size_t, n> {};
+
+template <typename id, std::size_t rank, std::size_t acc>
+constexpr constant_index <acc> counter_crumb(id,
+		constant_index <rank>,
+		constant_index <acc>) { return {}; }
+
+#define COUNTER_READ_CRUMB(TAG, RANK, ACC ) counter_crumb( 	\
+	TAG(), constant_index <RANK> (),			\
+	constant_index <ACC> ())
+
+#define COUNTER_READ( TAG ) COUNTER_READ_CRUMB(TAG, 1,		\
+	COUNTER_READ_CRUMB(TAG, 2,				\
+	COUNTER_READ_CRUMB(TAG, 4,				\
+	COUNTER_READ_CRUMB(TAG, 8,				\
+    	COUNTER_READ_CRUMB(TAG, 16,				\
+	COUNTER_READ_CRUMB(TAG, 32,				\
+	COUNTER_READ_CRUMB(TAG, 64,				\
+	COUNTER_READ_CRUMB(TAG, 128, 0))))))))
+
+#define COUNTER_INC( TAG ) 						\
+	constexpr constant_index< COUNTER_READ( TAG ) + 1 > 		\
+	counter_crumb(TAG,						\
+	constant_index <(COUNTER_READ(TAG) + 1) & ~COUNTER_READ(TAG)>,	\
+	constant_index <(COUNTER_READ(TAG) + 1) & COUNTER_READ(TAG)>	\
+	) { return {}; }
+
+}			// Compile-time utilities
+
 // Return type
 class _ret {
 public:
@@ -1783,6 +1818,10 @@ struct token {
 		}							\
 	};
 
+#define auto_mk_token(T, regex) 		\
+	COUNTER_INC(int);			\
+	mk_token(T, COUNTER_READ(int), regex)
+
 #define mk_overloaded_token(T, value, str, R, ftn)			\
 	template <>							\
 	struct nabu::parser::token <T> {				\
@@ -1797,6 +1836,10 @@ struct token {
 			return ftn(s);					\
 		}							\
 	};
+
+#define auto_mk_overloaded_token(T, regex, R, ftn) 	\
+	COUNTER_INC(int);				\
+	mk_overloaded_token(T, COUNTER_READ(int), regex, R, ftn)
 
 
 // #define set_nid(T) to set id to incremented value
@@ -1933,8 +1976,48 @@ parser::lexicon match(std::sregex_iterator &it, int index = 0)
 	return nullptr;
 }
 
-// Lexes a string and returns a queue of tokens
+// Exception for lexing
+// TODO: docs -> feel free to use
+struct bad_token : public std::runtime_error {
+public:
+	bad_token(const std::string &s)
+		: std::runtime_error("lexq: read bad token \""
+				+ s + "\"") {}
+};
+
+// Split a string without spaces
+std::vector <std::string> split(const std::string &str)
+{
+	std::vector <std::string> ret;
+
+	std::string curr;
+	std::string content = str + '\n';
+	for (int i = 0; i < content.length(); i++) {
+		char c = content[i];
+		if (isspace(c)) {
+			if (curr.length() > 0) {
+				ret.push_back(curr);
+				curr.clear();
+			}
+		} else {
+			curr += c;
+		}
+	}
+
+	return ret;
+}
+
+// Lexer error handler
+// TODO: docs -> specialize to overload the handling
 template <class Head>
+void lerror_handler(const std::vector <std::string> &errs)
+{
+	// TODO: split and strip spaces
+	throw bad_token(errs[0]);
+}
+
+// Lexes a string and returns a queue of tokens
+template <class Head, bool ignore_error = false>
 Queue lexq(const std::string &source)
 {
 	std::regex re = compile <Head> ();
@@ -1942,11 +2025,29 @@ Queue lexq(const std::string &source)
 	std::sregex_iterator begin(source.begin(), source.end(), re);
 	std::sregex_iterator end;
 
+	// Store previous index
+	int prev = -1;
+
 	Queue q;
 	for (auto it = begin; it != end; it++) {
-		std::smatch m = *it;
+		int pos = it->position();
+		int len = it->length();
+
+		if (pos > prev + 1 && !ignore_error) {
+			// Make sure prev is a valid index
+			prev = std::max(0, prev);
+			std::string s = source.substr(prev, pos - prev);
+			std::vector <std::string> sp = split(s);
+
+			if (sp.size() > 0)
+				lerror_handler <Head> (sp);
+		}
+
 		parser::lexicon lptr = match <Head> (it);
 		q.push_back(lptr);
+
+		// Update the previous position
+		prev = pos + len;
 	}
 	
 	return q;
@@ -2066,6 +2167,7 @@ set_name(nabu::rules::cchar, cchar);
 
 // TODO: name should be inside the nabu generic namespace
 
-// TODO: add counter macro & template
+// Include the counters by default
+using namespace nabu::cc;
 
 #endif

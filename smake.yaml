@@ -33,13 +33,15 @@ targets:
       - valgrind: 'valgrind --leak-check=full --show-leak-kinds=all -- {} example.nabu'
       - leaks: 'leaks -atExit -- {} example.nabu'
   - exp:
-    - modes: gdb
+    - modes: gdb, lldb
     - builds:
       - default: explicit
       - gdb: explicit_debug
+      - lldb: explicit_debug
     - postbuilds:
       - default: '{}'
       - gdb: 'gdb {}'
+      - lldb: 'lldb {}'
 
 installs:
   - nabu: 'sudo install .smake/targets/nabu /usr/local/bin'
