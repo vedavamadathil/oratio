@@ -1931,10 +1931,28 @@ std::vector <lexicon> tovec(lexicon lptr)
 	return ((lexvec *) lptr.get())->value;
 }
 
+// Read a an expected token
+template <class E>
+bool expect(Queue &q)
+{
+	if (q.empty())
+		return false;
+
+	lexicon lptr = q.front();
+	if (lptr->id != token <E> ::id)
+		return false;
+
+	q.pop_front();
+	return true;
+}
+
 // Get element from queue if it matches
 template <class E, class T>
 bool expect(Queue &q, T &value)
 {
+	if (q.empty())
+		return false;
+
 	lexicon lptr = q.front();
 	if (lptr->id == token <E> ::id) {
 		value = get <T> (lptr);

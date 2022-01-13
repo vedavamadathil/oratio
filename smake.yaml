@@ -27,7 +27,7 @@ targets:
       - valgrind: nabu_debug
       - leaks: nabu_debug
     - postbuilds:
-      - default: '{} -c examples/example.nabu'
+      - default: '{} examples/example.nabu'
       - gdb: 'gdb {}'
       - lldb: 'lldb {}'
       - valgrind: 'valgrind --leak-check=full --show-leak-kinds=all -- {} example.nabu'
