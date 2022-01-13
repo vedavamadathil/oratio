@@ -1,5 +1,6 @@
 @project xyzwlang
 @entry sh_main
+@rules
 
 sh_type := sh_type int | epsilon
 sh_main := sh_type

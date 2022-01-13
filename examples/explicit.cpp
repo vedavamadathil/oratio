@@ -14,8 +14,10 @@ std::string read(const std::string &path)
 
 std::string source = read("examples/example.nabu");
 
-using myident = rules::skipper <rules::identifier>;
-using mynumber = rules::skipper <int>;
+struct identifier {};
+struct macro {};
+struct warlus {};
+struct option {};
 
 inline int to_int(const std::string &s) {
 	return std::atoi(s.c_str());
@@ -25,42 +27,85 @@ inline std::string to_string(const std::string &s) {
 	return s;
 }
 
-auto_mk_overloaded_token(myident, "[a-zA-Z_][a-zA-Z0-9_]*", std::string, to_string);
-auto_mk_overloaded_token(mynumber, "[0-9]+", int, to_int);
-
-struct macro {};
-
+// TODO: mk_token should create a struct, auto_token is using the struct
+auto_mk_overloaded_token(identifier, "[a-zA-Z_][a-zA-Z0-9_]*", std::string, to_string);
 auto_mk_overloaded_token(macro, "@[a-zA-Z_][a-zA-Z0-9_]*", std::string, to_string);
 
-struct warlus {};
-
 auto_mk_token(warlus, ":=");
-
-struct option {};
-
 auto_mk_token(option, "\\|")
 
-lexlist_next(myident, mynumber);
-lexlist_next(mynumber, macro);
+lexlist_next(identifier, macro);
 lexlist_next(macro, warlus);
 lexlist_next(warlus, option);
 
-// auto_mk_token(int, "[0-9]+");
+#define nabu_tokid(T) token <T> ::id
+
+template <>
+struct parser::rd::grammar_action <macro> {
+	static constexpr bool available = true;
+
+	// Macro related variables
+	static struct {
+		std::string project;
+		std::string entry;
+	} state;
+
+	// Macro handlers
+	static void project(parser::Queue &q) {
+		parser::lexicon lptr = q.front();
+		if (lptr->id == nabu_tokid(identifier)) {
+			state.project = get <std::string> (lptr);
+			q.pop_front();
+		}
+	}
+
+	static void entry(parser::Queue &q) {
+		if (!parser::expect <identifier, std::string> (q, state.entry)) {
+			std::cout << "Expected identifier after @entry!\n";
+		}
+	}
+
+	// Grammar action
+	static void action(parser::lexicon lptr, parser::Queue &q) {
+		static std::unordered_map <
+				std::string,
+				void (*)(parser::Queue &)
+			> handlers {
+			{"@project", &project},
+			{"@entry", &entry}
+		};
+
+		std::cout << "MACRO: " << lptr->str() << std::endl;
+
+		std::string macro = get <std::string> (lptr);
+		if (handlers.find(macro) == handlers.end()) {
+			std::cout << "BAD MACRO!\n";
+		}
+
+		return handlers[macro](q);
+	}
+};
+
+decltype(parser::rd::grammar_action <macro> ::state)
+parser::rd::grammar_action <macro> ::state;
 
 int main()
 {
+	using parser::rd::grammar;
+	using parser::rd::option;
+
+	using gmacro = grammar <macro>;
+
 	std::cout << "Source: " << source << std::endl;
-	parser::Queue q = parser::lexq <myident> (source);
-	while (!q.empty()) {
+	parser::Queue q = parser::lexq <identifier> (source);
+	/* while (!q.empty()) {
 		parser::lexicon lptr = q.front();
 		q.pop_front();
 
 		std::cout << "Lexicon: " << lptr->str() << std::endl;
-	}
+	} */
 
-	/* parser::lexicon lptr;
-	lptr = parser::rd::grammar <myident, myident, mynumber> ::value(q);
-
-	std::cout << "lptr = " << lptr << " -> "
-		<< (lptr ? lptr->str() : "Null") << std::endl; */
+	parser::lexicon lptr;
+	lptr = grammar <void> ::value(q);
+	while ((lptr = gmacro::value(q)));
 }

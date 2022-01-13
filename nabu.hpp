@@ -1804,6 +1804,24 @@ struct token {
 		}							\
 	};
 
+#define auto_mk_id(T)							\
+	COUNTER_INC(int)						\
+	mk_id(T, COUNTER_READ(int))
+
+// Some explicit specialization
+template <>
+struct token <void> {
+	static constexpr int id = 0;
+	static constexpr const char *regex = "";
+	static constexpr bool overloaded = false;
+
+	using cast_type = int;
+
+	static cast_type cast(const std::string &s) {
+		return 0;
+	}
+};
+
 #define mk_token(T, value, str)						\
 	template <>							\
 	struct nabu::parser::token <T> {				\
@@ -1893,11 +1911,11 @@ using lexicon = std::shared_ptr <_lexvalue>;
 // Vector of lexvalues
 using lexvec = lexvalue <std::vector <lexicon>>;
 
+// Predefined lexids
+mk_id(std::vector <lexicon>, 1);
+
 // Queue of lexicons (for parsers)
 using Queue = std::deque <lexicon>;
-
-// Predefined lexids
-mk_id(std::vector <lexicon>, 0);
 
 // Overload get for lexicons
 template <class T>
@@ -1905,6 +1923,26 @@ T get(lexicon lptr)
 {
 	// TODO: same NABU_NO_RTTI dilemma here
 	return ((lexvalue <T> *) lptr.get())->value;
+}
+
+// Cast to vector
+std::vector <lexicon> tovec(lexicon lptr)
+{
+	return ((lexvec *) lptr.get())->value;
+}
+
+// Get element from queue if it matches
+template <class E, class T>
+bool expect(Queue &q, T &value)
+{
+	lexicon lptr = q.front();
+	if (lptr->id == token <E> ::id) {
+		value = get <T> (lptr);
+		q.pop_front();
+		return true;
+	}
+
+	return false;
 }
 
 // Defines the sequence of lexical rules
@@ -2056,6 +2094,14 @@ Queue lexq(const std::string &source)
 // Parser using recursive descent
 namespace rd {
 
+// Grammar actions
+// 	performed when a grammar is matched
+template <class ... Args>
+struct grammar_action {
+	static constexpr bool available = false;
+	static void action(lexicon, Queue &) {}
+};
+
 // A grammar becomes a sequence of lexicon types
 //	uses the lexid to compare with the lexicons
 template <class ... Args>
@@ -2078,23 +2124,21 @@ struct grammar <T, Args...> {
 				return true;
 		}
 
-		// The vector will still have the elements
-		// that were successfully parsed, but we
-		// need to restore the queue
-		q.push_front(lptr);
-
 		return false;
 	}
 
 	// Default grammar
 	static lexicon value(Queue &q) {
-		// Note that since the id does not matter
-		// for RD parsing, we can use a random id
 		std::vector <lexicon> v;
 		if (_process(v, q)) {
-			return lexicon(new lexvec(
+			lexicon lptr(new lexvec(
 				v, token <decltype(v)> ::id
 			));
+
+			if (grammar_action <T, Args...> ::available)
+				grammar_action <T, Args...> ::action(lptr, q);
+
+			return lptr;
 		}
 
 		return nullptr;
@@ -2119,13 +2163,138 @@ struct grammar <T> {
 
 	// Default grammar
 	static lexicon value(Queue &q) {
+		// Skip if empty queue
+		if (q.empty())
+			return nullptr;
+
 		lexicon lptr = q.front();
 		if (lptr && lptr->id == token <T> ::id) {
 			q.pop_front();
+
+			if (grammar_action <T> ::available)
+				grammar_action <T> ::action(lptr, q);
+
 			return lptr;
 		}
 
 		return nullptr;
+	}
+};
+
+// Grammar options
+template <class ... Args>
+struct option {
+	static lexicon value(Queue &q) {
+		return nullptr;
+	}
+};
+
+template <class T, class ... Args>
+struct option <T, Args...> {
+	static lexicon value(Queue &q) {
+		lexicon lptr = grammar <T> ::value(q);
+		if (lptr)
+			return lptr;
+		return option <Args...> ::value(q);
+	}
+};
+
+template <class T>
+struct option <T> {
+	static lexicon value(Queue &q) {
+		lexicon lptr = grammar <T> ::value(q);
+		if (lptr)
+			return lptr;
+		return nullptr;
+	}
+};
+
+// Overload grammar for options
+template <class ... Args, class ... Eargs>
+struct grammar <option <Args...>, Eargs...> {
+	// Process function
+	static bool _process(std::vector <lexicon> &v, Queue &q) {
+		lexicon lptr = option <Args...> ::value(q);
+		if (lptr) {
+			v.push_back(lptr);
+
+			if (grammar <Eargs...> ::_process(v, q))
+				return true;
+		}
+
+		return false;
+	}
+
+	// Default grammar
+	static lexicon value(Queue &q) {
+		using gaction = grammar_action <
+			option <Args...>,
+			Eargs...
+		>;
+
+		// Skip if empty queue
+		if (q.empty())
+			return nullptr;
+		
+		std::vector <lexicon> v;
+		if (_process(v, q)) {
+			lexicon lptr(new lexvec(
+				v, token <decltype(v)> ::id
+			));
+
+			if (gaction::available)
+				gaction::action(lptr, q);
+
+			return lptr;
+		}
+
+		return nullptr;
+	}
+};
+
+template <class ... Args>
+struct grammar <option <Args...>> {
+	// Process function
+	static bool _process(std::vector <lexicon> &v, Queue &q) {
+		lexicon lptr = option <Args...> ::value(q);
+		if (lptr) {
+			v.push_back(lptr);
+			return true;
+		}
+
+		return false;
+	}
+
+	// Default grammar
+	static lexicon value(Queue &q) {
+		// Skip if empty queue
+		if (q.empty())
+			return nullptr;
+
+		lexicon lptr = option <Args...> ::value(q);
+		if (lptr) {
+			if (grammar_action <option <Args...>> ::available)
+				grammar_action <option <Args...>> ::action(lptr, q);
+			return lptr;
+		}
+
+		return nullptr;
+	}
+};
+
+// Overload grammar for void (as epsilon)
+template <>
+struct grammar <void> {
+	// Blank process function
+	static bool _process(std::vector <lexicon> &v, Queue &q) {
+		return true;
+	}
+
+	// Blank grammar
+	static lexicon value(Queue &q) {
+		return lexicon(new _lexvalue {
+			token <void> ::id
+		});
 	}
 };
 
@@ -2169,5 +2338,9 @@ set_name(nabu::rules::cchar, cchar);
 
 // Include the counters by default
 using namespace nabu::cc;
+
+// Increement the counter to account for pre-specialized
+COUNTER_INC(int);
+COUNTER_INC(int);
 
 #endif
