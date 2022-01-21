@@ -1,12 +1,5 @@
-@lexer
-
-int := "[0-9]+"
-
 @parser-rd
 
-sh_type := double int
-
-sh_main := sh_type => (lptr, q)
-{
+sh_main := int double => (lptr, q) {
 	return lptr;
 }

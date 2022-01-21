@@ -2372,7 +2372,7 @@ struct grammar <void> {
 // when the number of times is less than 0,
 // it will repeat forever (as long as the
 // grammar is valid)
-template <class T, int N = -1>
+template <class T, int N = -1, int M = -1>
 struct repeat {
 	static lexicon value(Queue &q) {
 		std::vector <lexicon> v;
@@ -2386,6 +2386,10 @@ struct repeat {
 				break;
 		}
 
+                // Check if minimum number of times is met
+                if (M > 0 && v.size() < M)
+                        return nullptr;
+
 		return lexicon(new lexvec(
 			v, token <decltype(v)> ::id
 		));
@@ -2393,11 +2397,11 @@ struct repeat {
 };
 
 // Overload grammar for repeats
-template <class T, int N>
-struct grammar <repeat <T, N>> {
+template <class T, int N, int M>
+struct grammar <repeat <T, N, M>> {
 	// Process function
 	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		lexicon lptr = repeat <T, N> ::value(q);
+		lexicon lptr = repeat <T, N, M> ::value(q);
 		if (lptr) {
 			v.push_back(lptr);
 			return true;
@@ -2412,10 +2416,10 @@ struct grammar <repeat <T, N>> {
 		if (q.empty())
 			return nullptr;
 
-		lexicon lptr = repeat <T, N> ::value(q);
+		lexicon lptr = repeat <T, N, M> ::value(q);
 		if (lptr) {
-			if (grammar_action <repeat <T, N>> ::available)
-				grammar_action <repeat <T, N>> ::action(lptr, q);
+			if (grammar_action <repeat <T, N, M>> ::available)
+				grammar_action <repeat <T, N, M>> ::action(lptr, q);
 			return lptr;
 		}
 
@@ -2463,18 +2467,33 @@ struct grammar <alias <Args...>> {
 }
 
 // Overload convert string for lexvec
+inline std::string pretty_lexvec(const std::vector <parser::lexicon> &v, int indent = 0)
+{
+        std::string tabs(indent, '\t');
+	std::string s = "{\n\t" + tabs;
+	for (int i = 0; i < v.size(); i++) {
+                // Check if it is a lexvec
+                if (v[i]->id == parser::token <std::vector <parser::lexicon>> ::id) {
+                        s += pretty_lexvec(
+                                tovec(v[i]),
+                                indent + 1
+                        );
+                } else {
+                        s += v[i]->str();
+                }
+
+		if (i != v.size() - 1)
+			s += ",\n\t" + tabs;
+	}
+
+	return s + "\n" + tabs + "}";
+}
+
 template <>
 inline std::string convert_string <std::vector <parser::lexicon>>
 		(const std::vector <parser::lexicon> &v)
 {
-	std::string s = "{";
-	for (int i = 0; i < v.size(); i++) {
-		s += v[i]->str();
-		if (i != v.size() - 1)
-			s += ", ";
-	}
-
-	return s + "}";
+        return pretty_lexvec(v);
 }
 
 }

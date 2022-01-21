@@ -29,6 +29,11 @@ int main(int argc, char *argv[])
 
 	std::cout << "Source: " << source << std::endl;
 	parser::Queue q = parser::lexq <identifier> (source);
+
+// #define SHOW_TOKENS
+
+#ifdef SHOW_TOKENS
+
 	while (!q.empty()) {
 		parser::lexicon lptr = q.front();
 		q.pop_front();
@@ -36,18 +41,28 @@ int main(int argc, char *argv[])
 		std::cout << "lexicon: " << lptr->str() << std::endl;
 	}
 
-	/* parser::lexicon lptr;
-	lptr = grammar <void> ::value(q);
-	while ((lptr = g_statement::value(q)));
+#else
 
+	parser::lexicon lptr;
+        while ((lptr = g_statement::value(q)));
+
+        // Parsing summary
 	std::cout << "=== Glob ===" << std::endl;
 	for (auto &i : glob.lexers) {
 		std::cout << i.name << ": " << i.regex << std::endl;
 	}
 
 	for (auto &i : glob.parsers) {
-		std::cout << i.name << ": " << i.code << std::endl;
-	} */
+		std::cout << i.name << ": " << i.code << ": (";
+                for (const auto &a: i.args)
+                        std::cout << a << ", ";
+
+                std::cout << "): " << i.action << std::endl;
+	}
+
+#endif
+        
+        return 0;
 }
 
 // Global variables

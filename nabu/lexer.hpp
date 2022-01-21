@@ -35,11 +35,11 @@ auto_mk_overloaded_token(fbody, "\\{.*}", std::string, to_string);
 
 // Operators
 struct action {};
-struct warlus {};
+struct walrus {};
 struct optional {};
 
 auto_mk_token(action, "=>");
-auto_mk_token(warlus, ":=");
+auto_mk_token(walrus, ":=");
 auto_mk_token(optional, "\\|")
 
 // Miscenallenous
@@ -59,8 +59,8 @@ lexlist_next(macro, fargs);
 lexlist_next(fargs, fbody);
 lexlist_next(fbody, action);
 
-lexlist_next(action, warlus);
-lexlist_next(warlus, optional);
+lexlist_next(action, walrus);
+lexlist_next(walrus, optional);
 lexlist_next(optional, newline);
 
 // Aliases

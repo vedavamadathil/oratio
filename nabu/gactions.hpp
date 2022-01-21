@@ -4,10 +4,10 @@
 #include "lexer.hpp"
 
 // Color constants
-#define NABU_RESET_COLOR "\033[0m"
-#define NABU_BOLD_COLOR "\033[1m"
-#define NABU_ERROR_COLOR "\033[91;1m"
-#define NABU_WARNING_COLOR "\033[93;1m"
+#define NABU_RESET_COLOR        "\033[0m"
+#define NABU_BOLD_COLOR         "\033[1m"
+#define NABU_ERROR_COLOR        "\033[91;1m"
+#define NABU_WARNING_COLOR      "\033[93;1m"
 
 ////////////////////////////////////
 // Grammar aliases and structures //
@@ -16,11 +16,21 @@
 // Term of an expression
 using term = option <identifier, str>;
 
+// Rule action
+//      the body ca be on the next line
+using rule_action = alias <
+                action,
+                fargs,
+                option <newline, void>,
+                fbody
+        >;
+
 // Assignment statements
 using assignment = alias <
 		identifier,
-		warlus,
-      		repeat <term>
+		walrus,
+      		repeat <term, -1, 1>,
+		option <rule_action, void>
 	>;
 
 // All valid statements
@@ -45,7 +55,7 @@ struct Glob {
 	};
 
 	// Current mode
-	int mode = LEXER;
+	int mode = PARSER_RD;
 
 	// Lexers
 	struct Lexer {
@@ -64,6 +74,7 @@ struct Glob {
 		std::string code;
 
 		// Optional grammar action
+                std::vector <std::string> args;
 		std::string action;
 	};
 
@@ -175,9 +186,29 @@ struct grammar_action <assignment> {
 		return "?";
 	}
 
+        // Extract arguments from a string of the form (a, b, c, ...)
+        static std::vector <std::string> extract_args(const std::string sig)
+        {
+                std::vector <std::string> args;
+
+                std::string arg;
+                for (char c : sig) {
+                        if (c == ',' || c == ')') {
+                                args.push_back(arg);
+                                std::cout << "Pushed " << arg << std::endl;
+                                arg.clear();
+                        } else if (c != '(') {
+                                arg += c;
+                        }
+                }
+
+                return args;
+        }
+
 	// Push an assignment to the glob
 	static void push_parser(const std::string &ident,
-			const std::vector <parser::lexicon> &terms) {
+			const std::vector <parser::lexicon> &terms,
+                        const std::vector <parser::lexicon> &converter) {
 		std::string code = "nabu::parser::rd::alias <";
 
 		// Create the code
@@ -194,14 +225,27 @@ struct grammar_action <assignment> {
 		// Closde the code
 		code += ">";
 
+                // Extract arguments and body if any
+                std::vector <std::string> args;
+                std::string body;
+
+                if (converter.size() > 0) {
+                        parser::lexicon largs = converter[1];
+                        parser::lexicon lbody = converter[3];
+
+                        args = extract_args(get <std::string> (largs));
+                        body = get <std::string> (lbody);
+                }
+
 		glob.parsers.push_back(
-			{ident, code}
+			{ident, code, args, body}
 		);
 	}
 
 	// Create a lexer with regex
 	static void push_lexer(const std::string &ident,
-			const std::vector <parser::lexicon> &terms) {
+			const std::vector <parser::lexicon> &terms,
+                        const std::vector <parser::lexicon> &action) {
 		std::string regex;
 
 		// TODO: generalize later (compound regexes)
@@ -214,17 +258,22 @@ struct grammar_action <assignment> {
 	// Grammar action
 	static void action(parser::lexicon lptr, parser::Queue &q) {
 		std::vector <lexicon> v = tovec(lptr);
-		std::vector <lexicon> terms = tovec(v[2]);
 
 		std::string name = get <std::string> (v[0]);
+		std::vector <lexicon> terms = tovec(v[2]);
+                std::vector <lexicon> converter;
+
+                // Check if converter or action is present
+                if (v[3]->id == token <std::vector <lexicon>> ::id)
+                    converter = tovec(v[3]);
 
 		// TODO: array of lexicons
 		switch (glob.mode) {
 		case Glob::LEXER:
-			push_lexer(name, terms);
+			push_lexer(name, terms, converter);
 			break;
 		case Glob::PARSER_RD:
-			push_parser(name, terms);
+			push_parser(name, terms, converter);
 			break;
 		default:
 			std::cerr << "Unexpected assignment in mode "
