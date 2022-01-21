@@ -1,6 +1,12 @@
-@project xyzwlang
-@entry sh_main
-@rules
+@lexer
 
-sh_type := sh_type int
-sh_main := sh_type
+int := "[0-9]+"
+
+@parser-rd
+
+sh_type := double int
+
+sh_main := sh_type => (lptr, q)
+{
+	return lptr;
+}

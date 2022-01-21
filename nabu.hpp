@@ -1,17 +1,17 @@
 /* MIT License
- * 
+ *
  * Copyright (c) 2021 Venkataram Edavamadathil Sivaram
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -518,6 +518,7 @@ public:
 #define NABU_RESET_COLOR "\033[0m"
 #define NABU_BOLD_COLOR "\033[1m"
 #define NABU_ERROR_COLOR "\033[91;1m"
+#define NABU_WARNING_COLOR "\033[93;1m"
 
 // Class for reading command line arguments
 class ArgParser {
@@ -756,6 +757,14 @@ public:
 			NABU_BOLD_COLOR, _name.c_str(), NABU_ERROR_COLOR,
 			NABU_RESET_COLOR, str.c_str());
 		return -1;
+	}
+
+	// Print warning as a command
+	int warning(const std::string &str) const {
+		fprintf(stderr, "%s%s: %swarning:%s %s\n",
+			NABU_BOLD_COLOR, _name.c_str(), NABU_WARNING_COLOR,
+			NABU_RESET_COLOR, str.c_str());
+		return 0;
 	}
 
 	// Print help
@@ -1865,15 +1874,20 @@ struct token <void> {
 // TODO: docs -> user should not need to this
 struct _lexvalue {
 	int id = -1;
+	int line = -1;
+	int col = -1;
 
 	_lexvalue(int v) : id(v) {}
+	_lexvalue(int v, int l, int c) : id(v), line(l), col(c) {}
 
 	// Since this is a base class
 	virtual ~_lexvalue() {}
 
 	// Convert to string
 	virtual std::string str() const {
-		return "(id: " + std::to_string(id) + ")";
+		return "(id: " + std::to_string(id)
+			+ ", line: " + std::to_string(line)
+			+ ", col: " + std::to_string(col) + ")";
 	}
 };
 
@@ -1883,10 +1897,13 @@ struct lexvalue : public _lexvalue {
 	T value;
 
 	lexvalue(T a, int b) : _lexvalue(b), value(a) {}
+	lexvalue(T a, int b, int l, int c) : _lexvalue(b, l, c), value(a) {}
 
 	// convert to string
 	std::string str() const override {
 		return "(id: " + convert_string(this->id)
+			+ ", line: " + convert_string(this->line)
+			+ ", col: " + convert_string(this->col)
 			+ ", value: " + convert_string(value) + ")";
 	}
 };
@@ -1897,10 +1914,13 @@ struct lexvalue <std::string> : public _lexvalue {
 	std::string value;
 
 	lexvalue(std::string a, int b) : _lexvalue(b), value(a) {}
+	lexvalue(std::string a, int b, int l, int c) : _lexvalue(b, l, c), value(a) {}
 
 	// convert to string
 	std::string str() const override {
 		return "(id: " + convert_string(this->id)
+			+ ", line: " + convert_string(this->line)
+			+ ", col: " + convert_string(this->col)
 			+ ", value: " + value + ")";
 	}
 };
@@ -1999,9 +2019,33 @@ inline std::regex compile()
 	);
 }
 
+// Create the line and column table for a string
+using line_table = std::vector <std::pair <int, int>>;
+
+line_table line_column(const std::string &str)
+{
+	line_table ret;
+
+	int line = 1;
+	int column = 1;
+
+	for (int i = 0; i < str.size(); i++) {
+		ret.push_back(std::make_pair(line, column));
+
+		if (str[i] == '\n') {
+			line++;
+			column = 1;
+		} else {
+			column++;
+		}
+	}
+
+	return ret;
+}
+
 // Convert a matched token to its token value
 template <class Head>
-parser::lexicon match(std::sregex_iterator &it, int index = 0)
+parser::lexicon match(std::sregex_iterator &it, const line_table &ltbl, int index = 0)
 {
 	// Alias to keep things clean
 	using Node = token <Head>;
@@ -2009,17 +2053,22 @@ parser::lexicon match(std::sregex_iterator &it, int index = 0)
 
 	// If the next one is not empty, we have reached
 	if (it->str(index + 1).size() > 0) {
+		size_t sindex = it->position(index + 1);
+		
+		size_t line = ltbl[sindex].first;
+		size_t col = ltbl[sindex].second;
+
 		if (Node::overloaded) {
 			return parser::lexicon(new parser::lexvalue
 				<typename Node::cast_type> (
 					Node::cast(it->str(index + 1)),
-					Node::id
+					Node::id, line, col
 				)
 			);
 		} else {
 			return parser::lexicon(
 				new parser::_lexvalue(
-					Node::id
+					Node::id, line, col
 				)
 			);
 		}
@@ -2027,7 +2076,7 @@ parser::lexicon match(std::sregex_iterator &it, int index = 0)
 	
 	// Walk the list of tokens (if any left)
 	if (!lexlist <Head> ::tail)
-		return match <Next> (it, index + 1);
+		return match <Next> (it, ltbl, index + 1);
 
 	return nullptr;
 }
@@ -2081,6 +2130,8 @@ Queue lexq(const std::string &source)
 	std::sregex_iterator begin(source.begin(), source.end(), re);
 	std::sregex_iterator end;
 
+	line_table ltbl = line_column(source);
+
 	// Store previous index
 	int prev = -1;
 
@@ -2099,7 +2150,7 @@ Queue lexq(const std::string &source)
 				lerror_handler <Head> (sp);
 		}
 
-		parser::lexicon lptr = match <Head> (it);
+		parser::lexicon lptr = match <Head> (it, ltbl);
 		q.push_back(lptr);
 
 		// Update the previous position
@@ -2228,6 +2279,7 @@ struct option <T> {
 };
 
 // Overload grammar for options
+// TODO: is this needed?, the base case grammar should work
 template <class ... Args, class ... Eargs>
 struct grammar <option <Args...>, Eargs...> {
 	// Process function
@@ -2313,6 +2365,96 @@ struct grammar <void> {
 		return lexicon(new _lexvalue {
 			token <void> ::id
 		});
+	}
+};
+
+// Repeat a grammar
+// when the number of times is less than 0,
+// it will repeat forever (as long as the
+// grammar is valid)
+template <class T, int N = -1>
+struct repeat {
+	static lexicon value(Queue &q) {
+		std::vector <lexicon> v;
+
+		int tmp = N;
+		while (tmp < 0 || tmp-- == 0) {
+			lexicon lptr = grammar <T> ::value(q);
+			if (lptr)
+				v.push_back(lptr);
+			else
+				break;
+		}
+
+		return lexicon(new lexvec(
+			v, token <decltype(v)> ::id
+		));
+	}
+};
+
+// Overload grammar for repeats
+template <class T, int N>
+struct grammar <repeat <T, N>> {
+	// Process function
+	static bool _process(std::vector <lexicon> &v, Queue &q) {
+		lexicon lptr = repeat <T, N> ::value(q);
+		if (lptr) {
+			v.push_back(lptr);
+			return true;
+		}
+
+		return false;
+	}
+
+	// Default grammar
+	static lexicon value(Queue &q) {
+		// Skip if empty queue
+		if (q.empty())
+			return nullptr;
+
+		lexicon lptr = repeat <T, N> ::value(q);
+		if (lptr) {
+			if (grammar_action <repeat <T, N>> ::available)
+				grammar_action <repeat <T, N>> ::action(lptr, q);
+			return lptr;
+		}
+
+		return nullptr;
+	}
+};
+
+// Creating aliases more easily
+template <class ... Args>
+struct alias {};
+
+// Overload grammar for aliases
+template <class ... Args>
+struct grammar <alias <Args...>> {
+	// Process function
+	static bool _process(std::vector <lexicon> &v, Queue &q) {
+		lexicon lptr = grammar <Args...> ::value(q);
+		if (lptr) {
+			v.push_back(lptr);
+			return true;
+		}
+
+		return false;
+	}
+
+	// Default grammar
+	static lexicon value(Queue &q) {
+		// Skip if empty queue
+		if (q.empty())
+			return nullptr;
+
+		lexicon lptr = grammar <Args...> ::value(q);
+		if (lptr) {
+			if (grammar_action <alias <Args...>> ::available)
+				grammar_action <alias <Args...>> ::action(lptr, q);
+			return lptr;
+		}
+
+		return nullptr;
 	}
 };
 

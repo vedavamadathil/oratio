@@ -23,21 +23,35 @@ int main(int argc, char *argv[])
 	using parser::rd::grammar;
 	using parser::rd::option;
 
-	using gmacro = grammar <macro>;
+	using g_macro = grammar <macro>;
+	using g_assignment = grammar <assignment>;
+	using g_statement = grammar <statement>;
 
 	std::cout << "Source: " << source << std::endl;
 	parser::Queue q = parser::lexq <identifier> (source);
-	/* while (!q.empty()) {
+	while (!q.empty()) {
 		parser::lexicon lptr = q.front();
 		q.pop_front();
 
 		std::cout << "lexicon: " << lptr->str() << std::endl;
-	} */
+	}
 
-	parser::lexicon lptr;
+	/* parser::lexicon lptr;
 	lptr = grammar <void> ::value(q);
-	while ((lptr = gmacro::value(q)));
+	while ((lptr = g_statement::value(q)));
+
+	std::cout << "=== Glob ===" << std::endl;
+	for (auto &i : glob.lexers) {
+		std::cout << i.name << ": " << i.regex << std::endl;
+	}
+
+	for (auto &i : glob.parsers) {
+		std::cout << i.name << ": " << i.code << std::endl;
+	} */
 }
+
+// Global variables
+Glob glob;
 
 // Static variables
 decltype(grammar_action <macro> ::state)
