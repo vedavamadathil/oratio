@@ -60,7 +60,7 @@ constexpr constant_index <acc> counter_crumb(id,
 	COUNTER_READ_CRUMB(TAG, 2,				\
 	COUNTER_READ_CRUMB(TAG, 4,				\
 	COUNTER_READ_CRUMB(TAG, 8,				\
-    	COUNTER_READ_CRUMB(TAG, 16,				\
+	COUNTER_READ_CRUMB(TAG, 16,				\
 	COUNTER_READ_CRUMB(TAG, 32,				\
 	COUNTER_READ_CRUMB(TAG, 64,				\
 	COUNTER_READ_CRUMB(TAG, 128, 0))))))))
@@ -107,12 +107,12 @@ struct Tret : public _ret {
 };
 
 template <>
-std::string Tret <std::string> ::str() const {
+inline std::string Tret <std::string> ::str() const {
 	return "\"" + value + "\"";
 }
 
 template <>
-std::string Tret <char> ::str() const {
+inline std::string Tret <char> ::str() const {
 	return std::string("\'") + value + "\'";
 }
 
@@ -253,9 +253,10 @@ using mt_ret = std::pair <int, ret >;
 
 // Printing mt_rets
 template <>
-std::string Tret <mt_ret> ::str() const
+inline std::string Tret <mt_ret> ::str() const
 {
-	return "<" + std::to_string(value.first) + ", " + value.second->str() + ">";
+	return "<" + std::to_string(value.first) + ", "
+		+ value.second->str() + ">";
 }
 
 // Constant returns
@@ -507,7 +508,7 @@ public:
 		file.seekg(0, std::ios::beg);
 
 		str.assign((std::istreambuf_iterator <char> (file)),
-			   std::istreambuf_iterator <char> ());
+			std::istreambuf_iterator <char> ());
 
 		// Return the feeder
 		return StringFeeder(str, filename);
@@ -569,7 +570,7 @@ private:
 	bool _is_optn(const std::string &str) const {
 		if (str.empty())
 			return false;
-		
+
 		// The second hyphen is a redundant check
 		return (str[0] == '-');
 	}
@@ -591,7 +592,7 @@ private:
 			help();
 			exit(0);
 		}
-			
+
 		// Check if option is not present
 		if (!_optn_present(arg)) {
 			fprintf(stderr, "%s%s: %serror:%s unknown option %s\n",
@@ -609,7 +610,7 @@ private:
 					arg.c_str());
 				exit(-1);
 			}
-			
+
 			_set_optn(arg, argv[i]);
 		} else {
 			_set_optn(arg, "");
@@ -633,7 +634,7 @@ public:
 		// Constructor
 		Option(const std::string &str, const std::string &descr = "",
 			bool arg = false) : aliases {str}, descr(descr), arg(arg) {}
-		
+
 		Option(const Args &aliases, const std::string &descr = "",
 			bool arg = false) : aliases(aliases), descr(descr), arg(arg) {}
 	};
@@ -660,7 +661,7 @@ public:
 		// Add option to those which take an argument
 		if (arg)
 			_optn_args.insert(str);
-		
+
 		// Add the description
 		_descriptions[str] = descr;
 
@@ -677,7 +678,7 @@ public:
 		// Add the options
 		for (const auto &arg : args)
 			_optns.insert(arg);
-		
+
 		// Add option to those which take an argument
 		if (arg) {
 			for (const auto &arg : args)
@@ -687,7 +688,7 @@ public:
 		// Add the descriptions
 		for (const auto &arg : args)
 			_descriptions[arg] = descr;
-		
+
 		// Add the aliases
 		_aliases.push_back(args);
 
@@ -742,11 +743,11 @@ public:
 		// Check if the option even takes arguments
 		if (!_optn_arg(str))
 			throw optn_no_args(str);
-		
+
 		// Check if the option value is null
 		if (_matched_args.find(str) == _matched_args.end())
 			throw optn_null_value(str);
-		
+
 		// Return the converted value
 		return _convert <T> (_matched_args[str]);
 	}
@@ -825,7 +826,7 @@ public:
 
 			std::cout << "\t" << std::left << std::setw(20)
 				<< combined << " ";
-			
+
 			std::string optn = alias[0];
 			if (_matched_args.find(optn) == _matched_args.end()) {
 				std::cout << "Null\n";
@@ -914,20 +915,20 @@ inline bool ArgParser::get_optn <bool> (const std::string &str) {
 	// Check if its a valid option
 	if (_optns.find(str) == _optns.end())
 		throw bad_option(str);
-	
+
 	// If its empty and no argument, return true
 	if (!_optn_arg(str)) {
 		if (_matched_args.find(str) == _matched_args.end())
 			return false;
 		if (_matched_args[str].empty())
 			return true;
-		throw optn_no_args(str);	
+		throw optn_no_args(str);
 	}
-	
+
 	// Check if the option value is null
 	if (_matched_args.find(str) == _matched_args.end())
 		throw optn_null_value(str);
-	
+
 	// Return the converted value
 	return _convert <bool> (_matched_args[str]);
 }
@@ -986,7 +987,7 @@ struct printing {
 	static std::string get_indent() {
 		return std::string(indent * level, ' ');
 	}
-	
+
 	static std::string get_next_indent() {
 		return std::string(indent * (level + 1), ' ');
 	}
@@ -1592,7 +1593,7 @@ struct rule <identifier> {
 					break;
 				}
 			}
-			
+
 			return ret(new Tret <std::string> (str));
 		}
 
@@ -1637,7 +1638,7 @@ special_lit(comma, ',');
 special_lit(equals, '=');
 
 // Reading numbers
-unsigned long long int atoi(Feeder *fd)
+inline unsigned long long int atoi(Feeder *fd)
 {
 	// Return value
 	unsigned long long int x = 0;
@@ -1655,7 +1656,7 @@ unsigned long long int atoi(Feeder *fd)
 	return x;
 }
 
-long double atof(Feeder *fd)
+inline long double atof(Feeder *fd)
 {
 	// Temporary storage
 	long double a = 0.0;
@@ -1801,7 +1802,7 @@ struct token {
 // Token with a regex (dummy)
 #define mk_id(T, value)							\
 	template <>							\
-	struct nabu::parser::token <T> {				\
+	struct token <T> {						\
 		static constexpr int id = value;			\
 		static constexpr const char *regex = "";		\
 		static constexpr bool overloaded = false;		\
@@ -1946,7 +1947,7 @@ T get(lexicon lptr)
 }
 
 // Cast to vector
-std::vector <lexicon> tovec(lexicon lptr)
+inline std::vector <lexicon> tovec(lexicon lptr)
 {
 	return ((lexvec *) lptr.get())->value;
 }
@@ -1987,7 +1988,7 @@ bool expect(Queue &q, T &value)
 template <class T>
 struct lexlist {
 	static constexpr bool tail = true;
-	
+
 	using next = void;
 };
 
@@ -2014,7 +2015,7 @@ inline std::regex compile()
 {
 	return std::regex(
 		concat <Head> (),
-		std::regex::extended 
+		std::regex::extended
 			| std::regex::optimize
 	);
 }
@@ -2022,7 +2023,7 @@ inline std::regex compile()
 // Create the line and column table for a string
 using line_table = std::vector <std::pair <int, int>>;
 
-line_table line_column(const std::string &str)
+inline line_table line_column(const std::string &str)
 {
 	line_table ret;
 
@@ -2054,7 +2055,7 @@ parser::lexicon match(std::sregex_iterator &it, const line_table &ltbl, int inde
 	// If the next one is not empty, we have reached
 	if (it->str(index + 1).size() > 0) {
 		size_t sindex = it->position(index + 1);
-		
+
 		size_t line = ltbl[sindex].first;
 		size_t col = ltbl[sindex].second;
 
@@ -2073,7 +2074,7 @@ parser::lexicon match(std::sregex_iterator &it, const line_table &ltbl, int inde
 			);
 		}
 	}
-	
+
 	// Walk the list of tokens (if any left)
 	if (!lexlist <Head> ::tail)
 		return match <Next> (it, ltbl, index + 1);
@@ -2091,7 +2092,7 @@ public:
 };
 
 // Split a string without spaces
-std::vector <std::string> split(const std::string &str)
+inline std::vector <std::string> split(const std::string &str)
 {
 	std::vector <std::string> ret;
 
@@ -2156,7 +2157,7 @@ Queue lexq(const std::string &source)
 		// Update the previous position
 		prev = pos + len;
 	}
-	
+
 	return q;
 }
 
@@ -2305,7 +2306,7 @@ struct grammar <option <Args...>, Eargs...> {
 		// Skip if empty queue
 		if (q.empty())
 			return nullptr;
-		
+
 		std::vector <lexicon> v;
 		if (_process(v, q)) {
 			lexicon lptr(new lexvec(
@@ -2507,11 +2508,12 @@ inline std::string convert_string <std::vector <parser::lexicon>>
 							\
 	constexpr char nabu::rules::name <T> ::value[];
 
-// Set names
+// TODO: figure out how to make this work
+/* Set names
 set_name(nabu::rules::word, word);
 set_name(nabu::rules::identifier, identifier);
 set_name(nabu::rules::cstr, cstr);
-set_name(nabu::rules::cchar, cchar);
+set_name(nabu::rules::cchar, cchar); */
 
 // TODO: name should be inside the nabu generic namespace
 
