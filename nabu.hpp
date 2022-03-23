@@ -86,7 +86,7 @@ using ret = std::shared_ptr <_ret>;
 // Custom to_string() function
 // TODO: why is this necessary
 template <class T>
-inline std::string convert_string(const T& t)
+inline std::string convert_string(const T &t)
 {
 	return std::to_string(t);
 }
@@ -102,7 +102,7 @@ struct Tret : public _ret {
 	// Default to_string method
 	// TODO: will to_string induce rtti?
 	std::string str() const override {
-		return std::to_string(value);
+		return convert_string(value);
 	}
 };
 
@@ -249,7 +249,7 @@ inline ReturnVector getrv(ret rptr)
 // Special (alternate) return type for multiplexs
 //	contains information about the index
 //	of the rule that succeeded
-using mt_ret = std::pair <int, ret >;
+using mt_ret = std::pair <int, ret>;
 
 // Printing mt_rets
 template <>
