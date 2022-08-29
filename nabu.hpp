@@ -1791,6 +1791,12 @@ struct token {
 	static constexpr const char *regex = "";
 	static constexpr bool overloaded = false;
 
+#ifdef NABU_DEBUG_PARSER
+
+	static constexpr const char *name = "?";
+
+#endif
+
 	// Returns type of cast
 	using cast_type = int;
 
@@ -1798,6 +1804,26 @@ struct token {
 		return 0;
 	}
 };
+
+#ifdef NABU_DEBUG_PARSER
+
+// Token with a regex (dummy)
+#define mk_id(T, value)							\
+	template <>							\
+	struct token <T> {						\
+		static constexpr int id = value;			\
+		static constexpr const char *regex = "";		\
+		static constexpr bool overloaded = false;		\
+		static constexpr const char *name = #T;			\
+									\
+		using cast_type = int;					\
+									\
+		static cast_type cast(const std::string &s) {		\
+			return 0;					\
+		}							\
+	};
+
+#else
 
 // Token with a regex (dummy)
 #define mk_id(T, value)							\
@@ -1814,6 +1840,8 @@ struct token {
 		}							\
 	};
 
+#endif
+
 #define auto_mk_id(T)							\
 	COUNTER_INC(int)						\
 	mk_id(T, COUNTER_READ(int))
@@ -1825,12 +1853,37 @@ struct token <void> {
 	static constexpr const char *regex = "";
 	static constexpr bool overloaded = false;
 
+#ifdef NABU_DEBUG_PARSER
+
+	static constexpr const char *name = "void";
+
+#endif
+
 	using cast_type = int;
 
 	static cast_type cast(const std::string &s) {
 		return 0;
 	}
 };
+
+#ifdef NABU_DEBUG_PARSER
+
+#define mk_token(T, value, str)						\
+	template <>							\
+	struct nabu::parser::token <T> {				\
+		static constexpr int id = value;			\
+		static constexpr const char *regex = str;		\
+		static constexpr bool overloaded = false;		\
+		static constexpr const char *name = #T;			\
+									\
+		using cast_type = int;					\
+									\
+		static cast_type cast(const std::string &s) {		\
+			return 0;					\
+		}							\
+	};
+
+#else
 
 #define mk_token(T, value, str)						\
 	template <>							\
@@ -1846,9 +1899,31 @@ struct token <void> {
 		}							\
 	};
 
+#endif
+
 #define auto_mk_token(T, regex) 		\
 	COUNTER_INC(int);			\
 	mk_token(T, COUNTER_READ(int), regex)
+
+#ifdef NABU_DEBUG_PARSER
+
+#define mk_overloaded_token(T, value, str, R, ftn)			\
+	template <>							\
+	struct nabu::parser::token <T> {				\
+		static constexpr int id = value;			\
+		static constexpr const char *regex = str;		\
+		static constexpr const char *name = #T;			\
+									\
+		static constexpr bool overloaded = true;		\
+									\
+		using cast_type = R;					\
+									\
+		static cast_type cast(const std::string &s) {		\
+			return ftn(s);					\
+		}							\
+	};
+
+#else
 
 #define mk_overloaded_token(T, value, str, R, ftn)			\
 	template <>							\
@@ -1865,6 +1940,8 @@ struct token <void> {
 		}							\
 	};
 
+#endif
+
 #define auto_mk_overloaded_token(T, regex, R, ftn) 	\
 	COUNTER_INC(int);				\
 	mk_overloaded_token(T, COUNTER_READ(int), regex, R, ftn)
@@ -1878,17 +1955,41 @@ struct _lexvalue {
 	int line = -1;
 	int col = -1;
 
+#ifdef NABU_DEBUG_PARSER
+
+	const char *name;
+	
+	_lexvalue(int v, const char *n) : id(v), name(n) {}
+	_lexvalue(int v, const char *n, int l, int c)
+			: id(v), name(n), line(l), col(c) {}
+
+#else
+
 	_lexvalue(int v) : id(v) {}
 	_lexvalue(int v, int l, int c) : id(v), line(l), col(c) {}
+
+#endif
 
 	// Since this is a base class
 	virtual ~_lexvalue() {}
 
 	// Convert to string
 	virtual std::string str() const {
+
+#ifdef NABU_DEBUG_PARSER
+
+		return "(name: " + std::string(name)
+			+ ", line: " + std::to_string(line)
+			+ ", col: " + std::to_string(col) + ")";
+
+#else
+
 		return "(id: " + std::to_string(id)
 			+ ", line: " + std::to_string(line)
 			+ ", col: " + std::to_string(col) + ")";
+
+#endif
+
 	}
 };
 
@@ -1897,15 +1998,38 @@ template <class T>
 struct lexvalue : public _lexvalue {
 	T value;
 
+#ifdef NABU_DEBUG_PARSER
+
+	lexvalue(T a, int b, const char *n)  : _lexvalue(b, n), value(a) {}
+	lexvalue(T a, int b, const char *n,  int l, int c)
+			: _lexvalue(b, n, l, c), value(a) {}
+
+#else
+
 	lexvalue(T a, int b) : _lexvalue(b), value(a) {}
 	lexvalue(T a, int b, int l, int c) : _lexvalue(b, l, c), value(a) {}
 
+#endif
+
 	// convert to string
 	std::string str() const override {
+
+#ifdef NABU_DEBUG_PARSER
+		
+		return "(name: " + std::string(this->name)
+			+ ", line: " + convert_string(this->line)
+			+ ", col: " + convert_string(this->col)
+			+ ", value: " + convert_string(value) + ")";
+
+#else
+
 		return "(id: " + convert_string(this->id)
 			+ ", line: " + convert_string(this->line)
 			+ ", col: " + convert_string(this->col)
 			+ ", value: " + convert_string(value) + ")";
+
+#endif
+
 	}
 };
 
@@ -1914,15 +2038,38 @@ template <>
 struct lexvalue <std::string> : public _lexvalue {
 	std::string value;
 
-	lexvalue(std::string a, int b) : _lexvalue(b), value(a) {}
-	lexvalue(std::string a, int b, int l, int c) : _lexvalue(b, l, c), value(a) {}
+#ifdef NABU_DEBUG_PARSER
+
+	lexvalue(const std::string &a, int b, const char *n)  : _lexvalue(b, n), value(a) {}
+	lexvalue(const std::string &a, int b, const char *n,  int l, int c)
+			: _lexvalue(b, n, l, c), value(a) {}
+
+#else
+
+	lexvalue(const std::string &a, int b) : _lexvalue(b), value(a) {}
+	lexvalue(const std::string &a, int b, int l, int c) : _lexvalue(b, l, c), value(a) {}
+
+#endif
 
 	// convert to string
 	std::string str() const override {
+
+#ifdef NABU_DEBUG_PARSER
+
+		return "(name: " + std::string(this->name)
+			+ ", line: " + convert_string(this->line)
+			+ ", col: " + convert_string(this->col)
+			+ ", value: \"" + value + "\")";
+
+#else
+
 		return "(id: " + convert_string(this->id)
 			+ ", line: " + convert_string(this->line)
 			+ ", col: " + convert_string(this->col)
-			+ ", value: " + value + ")";
+			+ ", value: \"" + value + "\")";
+
+#endif
+
 	}
 };
 
@@ -2060,18 +2207,47 @@ parser::lexicon match(std::sregex_iterator &it, const line_table &ltbl, int inde
 		size_t col = ltbl[sindex].second;
 
 		if (Node::overloaded) {
+
+#ifdef NABU_DEBUG_PARSER
+
+			return parser::lexicon(new parser::lexvalue
+				<typename Node::cast_type> (
+					Node::cast(it->str(index + 1)),
+					Node::id, Node::name, line, col
+				)
+			);
+
+#else
+
 			return parser::lexicon(new parser::lexvalue
 				<typename Node::cast_type> (
 					Node::cast(it->str(index + 1)),
 					Node::id, line, col
 				)
 			);
+
+#endif
+
 		} else {
+
+#ifdef NABU_DEBUG_PARSER
+
+			return parser::lexicon(
+				new parser::_lexvalue(
+					Node::id, Node::name, line, col
+				)
+			);
+
+#else
+
 			return parser::lexicon(
 				new parser::_lexvalue(
 					Node::id, line, col
 				)
 			);
+
+#endif
+
 		}
 	}
 
@@ -2201,9 +2377,22 @@ struct grammar <T, Args...> {
 	static lexicon value(Queue &q) {
 		std::vector <lexicon> v;
 		if (_process(v, q)) {
+
+#ifdef NABU_DEBUG_PARSER
+
+			lexicon lptr(new lexvec(
+				v, 
+				token <decltype(v)> ::id,
+				token <decltype(v)> ::name
+			));
+
+#else
+
 			lexicon lptr(new lexvec(
 				v, token <decltype(v)> ::id
 			));
+
+#endif
 
 			if (grammar_action <T, Args...> ::available)
 				grammar_action <T, Args...> ::action(lptr, q);
@@ -2309,9 +2498,22 @@ struct grammar <option <Args...>, Eargs...> {
 
 		std::vector <lexicon> v;
 		if (_process(v, q)) {
+
+#ifdef NABU_DEBUG_PARSER
+
+			lexicon lptr(new lexvec(
+				v, 
+				token <decltype(v)> ::id,
+				token <decltype(v)> ::name
+			));
+
+#else
+
 			lexicon lptr(new lexvec(
 				v, token <decltype(v)> ::id
 			));
+
+#endif
 
 			if (gaction::available)
 				gaction::action(lptr, q);
@@ -2363,9 +2565,21 @@ struct grammar <void> {
 
 	// Blank grammar
 	static lexicon value(Queue &q) {
+
+#ifdef NABU_DEBUG_PARSER
+
+		return lexicon(new _lexvalue(
+			token <void> ::id,
+			token <void> ::name
+		));
+
+#else
+
 		return lexicon(new _lexvalue {
 			token <void> ::id
 		});
+
+#endif
 	}
 };
 
@@ -2391,9 +2605,22 @@ struct repeat {
                 if (M > 0 && v.size() < M)
                         return nullptr;
 
+#ifdef NABU_DEBUG_PARSER
+
+		lexicon lptr(new lexvec(
+			v, 
+			token <decltype(v)> ::id,
+			token <decltype(v)> ::name
+		));
+
+#else
+
 		return lexicon(new lexvec(
 			v, token <decltype(v)> ::id
 		));
+
+#endif
+
 	}
 };
 

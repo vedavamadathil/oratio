@@ -31,7 +31,7 @@ struct fbody {};
 // TODO: mk_token should create a struct, auto_token is using the struct
 auto_mk_overloaded_token(macro, "@[a-zA-Z_][a-zA-Z0-9_-]*", std::string, to_string);
 auto_mk_overloaded_token(fargs, "\\(.*\\)", std::string, to_string);
-auto_mk_overloaded_token(fbody, "\\{.*}", std::string, to_string);
+auto_mk_overloaded_token(fbody, "\\{.*\\}", std::string, to_string);
 
 // Operators
 struct action {};

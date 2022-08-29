@@ -19,7 +19,7 @@ builds:
 
 targets:
   - nabu:
-    - modes: gdb, lldb, valgrind
+    - modes: gdb, lldb, valgrind, leaks
     - builds:
       - default: nabu_release
       - gdb: nabu_debug
