@@ -2146,6 +2146,18 @@ struct lexlist {
 		using next = B;				\
 	};
 
+// Defines which lexicons should be ignored
+template <class T>
+struct ignore {
+	static constexpr bool value = false;
+};
+
+#define ignore(T)					\
+	template <>					\
+	struct nabu::parser::ignore <T> {		\
+		static constexpr bool value = true;	\
+	};
+
 // Concatenate regex for a set of lexical rules (lexlist)
 template <class T>
 std::string concat()
@@ -2193,7 +2205,7 @@ inline line_table line_column(const std::string &str)
 
 // Convert a matched token to its token value
 template <class Head>
-parser::lexicon match(std::sregex_iterator &it, const line_table &ltbl, int index = 0)
+parser::lexicon match(std::sregex_iterator &it, const line_table &ltbl, bool &ignored, int index = 0)
 {
 	// Alias to keep things clean
 	using Node = token <Head>;
@@ -2205,6 +2217,9 @@ parser::lexicon match(std::sregex_iterator &it, const line_table &ltbl, int inde
 
 		size_t line = ltbl[sindex].first;
 		size_t col = ltbl[sindex].second;
+
+		if (ignore <Head> ::value)
+			ignored = true;
 
 		if (Node::overloaded) {
 
@@ -2253,7 +2268,7 @@ parser::lexicon match(std::sregex_iterator &it, const line_table &ltbl, int inde
 
 	// Walk the list of tokens (if any left)
 	if (!lexlist <Head> ::tail)
-		return match <Next> (it, ltbl, index + 1);
+		return match <Next> (it, ltbl, ignored, index + 1);
 
 	return nullptr;
 }
@@ -2327,8 +2342,11 @@ Queue lexq(const std::string &source)
 				lerror_handler <Head> (sp);
 		}
 
-		parser::lexicon lptr = match <Head> (it, ltbl);
-		q.push_back(lptr);
+		bool ignored = false;
+		parser::lexicon lptr = match <Head> (it, ltbl, ignored);
+
+		if (!ignored)
+			q.push_back(lptr);
 
 		// Update the previous position
 		prev = pos + len;
