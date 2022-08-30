@@ -1,6 +1,8 @@
 #ifndef LEXER_H_
 #define LEXER_H_
 
+#define NABU_DEBUG_PARSER
+
 #include <nabu.hpp>
 
 ////////////////////////
@@ -31,14 +33,14 @@ struct fbody {};
 // TODO: mk_token should create a struct, auto_token is using the struct
 auto_mk_overloaded_token(macro, "@[a-zA-Z_][a-zA-Z0-9_-]*", std::string, to_string);
 auto_mk_overloaded_token(fargs, "\\(.*\\)", std::string, to_string);
-auto_mk_overloaded_token(fbody, "\\{.*\\}", std::string, to_string);
+auto_mk_overloaded_token(fbody, "\\{", std::string, to_string);
 
 // Operators
 struct action {};
 struct walrus {};
 struct optional {};
 
-auto_mk_token(action, "=>");
+auto_mk_token(action, "[=][>]");
 auto_mk_token(walrus, ":=");
 auto_mk_token(optional, "\\|")
 

@@ -39,6 +39,36 @@
 
 namespace nabu {
 
+// Built-in typename system for debugging
+#if defined(NABU_DEBUG_RULES) || defined(NABU_DEBUG_PARSER)
+
+#define NABU_DEBUG_GENERIC
+
+// Default type name
+template <class T, class ... Args>
+struct _type_name {
+	static std::string name() {
+		return _type_name <T> ::name() + std::string(", ")
+			+ _type_name <Args...> ::name();
+	}
+};
+
+// Specialization for single type
+template <class T>
+struct _type_name <T> {
+	static std::string name() {
+		return typeid(T).name();
+	}
+};
+
+template <class ... Args>
+std::string type_name()
+{
+	return "<" + _type_name <Args...> ::name() + ">";
+}
+
+#endif
+
 namespace cc {		// Compile-time utilities
 
 // TODO: add nabu prefixes, because this namespace is being
@@ -131,8 +161,8 @@ T get(ret rptr)
 class ReturnVector : public _ret {
 	std::vector <ret> _rets;
 
-	using iterator = typename std::vector <ret >::iterator;
-	using citerator = typename std::vector <ret >::const_iterator;
+	using iterator = typename std::vector <ret>::iterator;
+	using citerator = typename std::vector <ret>::const_iterator;
 public:
 	// Constructors
 	ReturnVector() {}
@@ -2078,7 +2108,8 @@ struct lexvalue <std::string> : public _lexvalue {
 using lexicon = std::shared_ptr <_lexvalue>;
 
 // Vector of lexvalues
-using lexvec = lexvalue <std::vector <lexicon>>;
+using vec = std::vector <lexicon>;
+using lexvec = lexvalue <vec>;
 
 // Predefined lexids
 mk_id(std::vector <lexicon>, 1);
@@ -2284,10 +2315,11 @@ inline std::regex compile()
 	}
 
 	try {
+		// TODO: an option to choose between different regex engines
+		// either macro or struct option
 		return std::regex(
 			concat <Head> (),
-			std::regex::extended
-				| std::regex::optimize
+			std::regex::ECMAScript | std::regex::optimize
 		);
 	} catch (std::regex_error &e) {
 		regex_error_handle <Head> ();
@@ -2415,11 +2447,12 @@ parser::lexicon match(std::sregex_iterator &it, const line_table &ltbl, bool &ig
 [[noreturn]]
 inline void error(const std::string &str, const line_list &lines, int line, int col)
 {
-	std::string line_str = lines[line];
+	std::string line_str = lines[line - 1];
+	// std::cout << "[nabu] Error: \"" << line_str << "\"" << std::endl;
 	printf("%s[nabu-lexq]%s error: read bad lexicon \"%s\" at line %d, column %d\n",
 		NABU_ERROR_COLOR, NABU_RESET_COLOR,
-		str.c_str(), line + 1, col);
-	printf(" %5d | %s%s%s\n", line + 1,
+		str.c_str(), line, col);
+	printf(" %5d | %s%s%s\n", line,
 		NABU_ERROR_COLOR, line_str.c_str(),
 		NABU_RESET_COLOR);
 	std::string space(col - 1, ' ');
@@ -2514,8 +2547,15 @@ Queue lexq(const std::string &source)
 			std::vector <std::string> sp = split(s);
 
 			if (sp.size() > 0) {
+				/*std::cout << "Error [1]: " << sp[0] << std::endl;
+				for (int i = 0; i < prev + 1; i++) {
+					int line = ltbl[i].first;
+					int col = ltbl[i].second;
+					std::cout << "char: " << source[i] << " line: " << line << " col: " << col << std::endl;
+				} */
+
 				lerror_handler <Head> (sp[0], lines,
-					ltbl[prev].first, ltbl[prev].second);
+					ltbl[prev].first, ltbl[prev].second + 1);
 			}
 		}
 
@@ -2529,9 +2569,12 @@ Queue lexq(const std::string &source)
 			int line = ltbl[pos].first;
 			int col = ltbl[pos].second;
 
-			if (sp.size() > 0)
+			if (sp.size() > 0) {
+				std::cout << "Error [2]: " << sp[0] << std::endl;
 				lerror_handler <Head> (sp[0], lines, line, col);
+			}
 			
+			std::cout << "Error [3]: " << s << std::endl;
 			std::string c(1, source[pos]);
 			lerror_handler <Head> ({c}, lines, line, col);
 		}
@@ -2557,6 +2600,41 @@ struct grammar_action {
 	static void action(lexicon, Queue &) {}
 };
 
+// Execute grammar actions: should execute for each
+// in sequence, and also some nested types
+// (i.e. option, repeat, alias, etc.)
+template <class T, class ... Args>
+struct execute_grammar_actions {
+	static void exec(lexicon lptr, Queue &q, int i = 0) {
+		// In this case, lptr must be lexvec
+		// TODO: use const
+		vec lvec = get <vec> (lptr);
+		lexicon l = lvec.at(i);
+
+		// TODO: check bounds here
+
+		// Execute for current type
+		execute_grammar_actions <T> ::exec(l, q);
+
+		// Execute for the following subexpressions
+		if (lvec.size() > i + 2)
+			execute_grammar_actions <Args...> ::exec(lptr, q, i + 1);
+		else
+			execute_grammar_actions <Args...> ::exec(lvec.back(), q);
+	}
+};
+
+// Execution for single grammar
+
+// TODO: simplify this interface
+template <class T>
+struct execute_grammar_actions <T> {
+	static void exec(lexicon lptr, Queue &q, int = -1) {
+		if (grammar_action <T> ::available)
+			grammar_action <T> ::action(lptr, q);
+	}
+};
+
 // A grammar becomes a sequence of lexicon types
 //	uses the lexid to compare with the lexicons
 template <class ... Args>
@@ -2571,12 +2649,13 @@ template <class T, class ... Args>
 struct grammar <T, Args...> {
 	// Process function
 	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		lexicon lptr = grammar <T> ::value(q);
-		if (lptr) {
-			v.push_back(lptr);
-
+		if (grammar <T> ::_process(v, q)) {
 			if (grammar <Args...> ::_process(v, q))
 				return true;
+
+			// Restore last lexicon
+			q.push_front(v.back());
+			v.pop_back();
 		}
 
 		return false;
@@ -2602,9 +2681,10 @@ struct grammar <T, Args...> {
 			));
 
 #endif
-
-			if (grammar_action <T, Args...> ::available)
-				grammar_action <T, Args...> ::action(lptr, q);
+			// Execute for each term, then for overall grammar
+			execute_grammar_actions <T, Args...> ::exec(lptr, q);
+			if (grammar_action <Args...> ::available)
+				grammar_action <Args...> ::action(lptr, q);
 
 			return lptr;
 		}
@@ -2618,6 +2698,9 @@ template <class T>
 struct grammar <T> {
 	// Process function
 	static bool _process(std::vector <lexicon> &v, Queue &q) {
+		if (q.empty())
+			return false;
+
 		lexicon lptr = q.front();
 		if (lptr && lptr->id == token <T> ::id) {
 			v.push_back(lptr);
@@ -2649,88 +2732,64 @@ struct grammar <T> {
 	}
 };
 
-// Grammar options
-template <class ... Args>
-struct option {
-	static lexicon value(Queue &q) {
-		return nullptr;
-	}
-};
-
+// Option/alternative grammar
 template <class T, class ... Args>
-struct option <T, Args...> {
-	static lexicon value(Queue &q) {
-		lexicon lptr = grammar <T> ::value(q);
-		if (lptr)
-			return lptr;
-		return option <Args...> ::value(q);
+struct option {
+	static int _process(std::vector <lexicon> &v, Queue &q) {
+		if (grammar <T> ::_process(v, q))
+			return 0;
+
+		// Try the next option
+		return option <Args...> ::_process(v, q) + 1;
 	}
 };
 
 template <class T>
 struct option <T> {
-	static lexicon value(Queue &q) {
-		lexicon lptr = grammar <T> ::value(q);
-		if (lptr)
-			return lptr;
-		return nullptr;
+	static int _process(std::vector <lexicon> &v, Queue &q) {
+		return grammar <T> ::_process(v, q) ? 0 : -1;
 	}
 };
 
-// Overload grammar for options
-// TODO: is this needed?, the base case grammar should work
-template <class ... Args, class ... Eargs>
-struct grammar <option <Args...>, Eargs...> {
-	// Process function
-	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		lexicon lptr = option <Args...> ::value(q);
-		if (lptr) {
-			v.push_back(lptr);
-
-			if (grammar <Eargs...> ::_process(v, q))
-				return true;
-		}
-
-		return false;
+// TODO: simplify pleaseee
+template <class T, class ... Args>
+struct execute_grammar_actions <option <T, Args...>> {
+	// Map of lexicon to option index
+	static std::map <lexicon, int> &map() {
+		static std::map <lexicon, int> m;
+		return m;
 	}
 
-	// Default grammar
-	static lexicon value(Queue &q) {
-		using gaction = grammar_action <
-			option <Args...>,
-			Eargs...
-		>;
+	// Execute for option at index
+	static void do_option(lexicon lptr, Queue &q, int i) {
+		// In this case, lptr must be lexvec
+		if (i == 0)
+			execute_grammar_actions <T> ::exec(lptr, q);
+		else
+			execute_grammar_actions <option <Args...>> ::do_option(lptr, q, i - 1);
+	}
 
-		// Skip if empty queue
-		if (q.empty())
-			return nullptr;
-
-		std::vector <lexicon> v;
-		if (_process(v, q)) {
-
-#ifdef NABU_DEBUG_PARSER
-
-			lexicon lptr(new lexvec(
-				v, 
-				token <decltype(v)> ::id,
-				token <decltype(v)> ::name
-			));
-
-#else
-
-			lexicon lptr(new lexvec(
-				v, token <decltype(v)> ::id
-			));
-
-#endif
-
-			if (gaction::available)
-				gaction::action(lptr, q);
-
-			return lptr;
+	static void exec(lexicon lptr, Queue &q, int = -1) {
+		if (map().find(lptr) != map().end()) {
+			do_option(lptr, q, map().at(lptr));
 		}
 
-		return nullptr;
+		if (grammar_action <option <T, Args...>> ::available)
+			grammar_action <option <T, Args...>> ::action(lptr, q);
+	}
+};
+
+template <class T>
+struct execute_grammar_actions <option <T>> {
+	static void do_option(lexicon lptr, Queue &q, int i) {
+		// In this case, lptr must be lexvec
+		if (i == 0)
+			execute_grammar_actions <T> ::exec(lptr, q);
+	}
+
+	static void exec(lexicon lptr, Queue &q, int = -1) {
+		if (grammar_action <option <T>> ::available)
+			grammar_action <option <T>> ::action(lptr, q);
 	}
 };
 
@@ -2738,9 +2797,11 @@ template <class ... Args>
 struct grammar <option <Args...>> {
 	// Process function
 	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		lexicon lptr = option <Args...> ::value(q);
-		if (lptr) {
-			v.push_back(lptr);
+		int index = option <Args...> ::_process(v, q);
+		if (index >= 0) {
+			// Store the index of the option
+			execute_grammar_actions <option <Args...>>
+				::map().insert(std::make_pair(v.back(), index));
 			return true;
 		}
 
@@ -2753,10 +2814,16 @@ struct grammar <option <Args...>> {
 		if (q.empty())
 			return nullptr;
 
-		lexicon lptr = option <Args...> ::value(q);
-		if (lptr) {
+		std::vector <lexicon> v;
+		if (_process(v, q)) {
+			lexicon lptr = v.back();
+
+			// The action for "selected" option has already
+			// been executed, so we just need to execute
+			// the overall grammar action
 			if (grammar_action <option <Args...>> ::available)
 				grammar_action <option <Args...>> ::action(lptr, q);
+
 			return lptr;
 		}
 
@@ -2789,6 +2856,7 @@ struct grammar <void> {
 		});
 
 #endif
+
 	}
 };
 
@@ -2816,7 +2884,7 @@ struct repeat {
 
 #ifdef NABU_DEBUG_PARSER
 
-		lexicon lptr(new lexvec(
+		return lexicon(new lexvec(
 			v, 
 			token <decltype(v)> ::id,
 			token <decltype(v)> ::name
@@ -2868,28 +2936,49 @@ struct grammar <repeat <T, N, M>> {
 template <class ... Args>
 struct alias {};
 
+template <class ... Args>
+struct execute_grammar_actions <alias <Args...>> {
+	static void exec(lexicon &lptr, Queue &q, int = -1) {
+		execute_grammar_actions <Args...> ::exec(lptr, q);
+
+		if (grammar_action <alias <Args...>> ::available)
+			grammar_action <alias <Args...>> ::action(lptr, q);
+	}
+};
+
 // Overload grammar for aliases
 template <class ... Args>
 struct grammar <alias <Args...>> {
 	// Process function
 	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		lexicon lptr = grammar <Args...> ::value(q);
-		if (lptr) {
-			v.push_back(lptr);
+		if (grammar <Args...> ::_process(v, q))
 			return true;
-		}
 
 		return false;
 	}
 
 	// Default grammar
 	static lexicon value(Queue &q) {
-		// Skip if empty queue
-		if (q.empty())
-			return nullptr;
+		std::vector <lexicon> v;
+		if (grammar <Args...> ::_process(v, q)) {
 
-		lexicon lptr = grammar <Args...> ::value(q);
-		if (lptr) {
+#ifdef NABU_DEBUG_PARSER
+
+			lexicon lptr(new lexvec(
+				v, 
+				token <decltype(v)> ::id,
+				token <decltype(v)> ::name
+			));
+
+#else
+
+			lexicon lptr(new lexvec(
+				v, token <decltype(v)> ::id
+			));
+
+#endif
+
+			execute_grammar_actions <Args...> ::exec(lptr, q);
 			if (grammar_action <alias <Args...>> ::available)
 				grammar_action <alias <Args...>> ::action(lptr, q);
 			return lptr;
@@ -2902,6 +2991,32 @@ struct grammar <alias <Args...>> {
 }
 
 }
+
+#ifdef NABU_DEBUG_GENERIC
+
+// Type names for this namespace
+template <class T, int N, int M>
+struct _type_name <parser::rd::repeat <T, N, M>> {
+	static std::string name() {
+		return "repeat <" + _type_name <T> ::name() + ", " + std::to_string(N) + ", " + std::to_string(M) + ">";
+	}
+};
+
+template <class ... Args>
+struct _type_name <parser::rd::option <Args...>> {
+	static std::string name() {
+		return "option <" + _type_name <Args...> ::name() + ">";
+	}
+};
+
+template <class ... Args>
+struct _type_name <parser::rd::alias <Args...>> {
+	static std::string name() {
+		return "alias <" + _type_name <Args...> ::name() + ">";
+	}
+};
+
+#endif
 
 // Overload convert string for lexvec
 inline std::string pretty_lexvec(const std::vector <parser::lexicon> &v, int indent = 0)
