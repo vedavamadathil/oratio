@@ -519,6 +519,7 @@ public:
 #define NABU_RESET_COLOR "\033[0m"
 #define NABU_BOLD_COLOR "\033[1m"
 #define NABU_ERROR_COLOR "\033[91;1m"
+#define NABU_OK_COLOR "\033[92;1m"
 #define NABU_WARNING_COLOR "\033[93;1m"
 
 // Class for reading command line arguments
@@ -2158,6 +2159,17 @@ struct ignore {
 		static constexpr bool value = true;	\
 	};
 
+// Get Nth regex from lexlist
+template <class T, int N>
+struct get_regex {
+	static constexpr int id = get_regex <typename lexlist <T> ::next, N - 1> ::id;
+};
+
+template <class T>
+struct get_regex <T, 0> {
+	static constexpr const char *regex = token <T> ::regex;
+};
+
 // Concatenate regex for a set of lexical rules (lexlist)
 template <class T>
 std::string concat()
@@ -2168,19 +2180,125 @@ std::string concat()
 	return result;
 }
 
+// Handle regex compilation errors
+template <class T>
+void regex_error_handle()
+{
+	try {
+		std::regex r(token <T> ::regex);
+
+		if (!lexlist <T> ::tail)
+			regex_error_handle <typename lexlist <T> ::next> ();
+	} catch (std::regex_error &e) {
+		std::string id = "(id: " + std::to_string(token <T> ::id) + ")";
+
+#ifdef NABU_DEBUG_PARSER
+
+		id = "(name: " + std::string(token <T> ::name) + ")";
+
+#endif
+
+		std::cerr << "[nabu] Error compiling regex " << id << ":\n";
+		std::cerr << "\t" << e.what() << std::endl;
+
+		std::string gen = "(" + std::string(token <T> ::regex) + ")";
+		std::cerr << "\tgenerated regex: \"" << gen << "\"" << std::endl;
+
+		exit(1);
+	}
+}
+
+#ifdef NABU_DEBUG_PARSER
+
+#define ID_TYPE const char *
+#define ID_NULL nullptr
+
+#else
+
+#define ID_TYPE int
+#define ID_NULL -1
+
+#endif
+
+// Check for cyclic list
+template <class T>
+ID_TYPE is_cyclic(std::set <int> &ids)
+{
+	int id = token <T> ::id;
+
+#ifdef NABU_DEBUG_PARSER
+	
+	if (ids.find(id) != ids.end())
+		return token <T> ::name;
+
+	if (lexlist <T> ::tail)
+		return nullptr;
+
+#else
+
+	if (ids.find(id) != ids.end())
+		return id;
+
+	if (lexlist <T> ::tail)
+		return -1;
+
+#endif
+
+	ids.insert(id);
+	return is_cyclic <typename lexlist <T> ::next> (ids);
+}
+
+// Get length of lexlist
+template <class T>
+constexpr int _length()
+{
+	if (lexlist <T> ::tail)
+		return 1;
+
+	return 1 + _length <typename lexlist <T> ::next> ();
+}
+
 // Compile the regex for a set of lexical rules
 template <class Head>
 inline std::regex compile()
 {
-	return std::regex(
-		concat <Head> (),
-		std::regex::extended
-			| std::regex::optimize
-	);
+	// First make sure the list is not cyclic
+	std::set <int> ids;
+
+	ID_TYPE id = is_cyclic <Head> (ids);
+	if (id != ID_NULL) {
+
+#ifdef NABU_DEBUG_PARSER
+
+		std::string id_str = id;
+
+#else
+
+		std::string id_str = std::to_string(id);
+
+#endif
+
+		std::cerr << "[nabu] Error: lexical rule list is cyclic at (id: "
+			<< id_str << ")" << std::endl;
+		exit(1);
+	}
+
+	try {
+		return std::regex(
+			concat <Head> (),
+			std::regex::extended
+				| std::regex::optimize
+		);
+	} catch (std::regex_error &e) {
+		regex_error_handle <Head> ();
+	}
+
+	return std::regex {};
 }
 
 // Create the line and column table for a string
 using line_table = std::vector <std::pair <int, int>>;
+using line_list = std::vector <std::string>;
 
 inline line_table line_column(const std::string &str)
 {
@@ -2197,6 +2315,25 @@ inline line_table line_column(const std::string &str)
 			column = 1;
 		} else {
 			column++;
+		}
+	}
+
+	return ret;
+}
+
+inline line_list split_lines(const std::string &str)
+{
+	line_list ret;
+
+	std::string line;
+	
+	std::string tmp = str + "\n";
+	for (int i = 0; i < tmp.size(); i++) {
+		if (tmp[i] == '\n') {
+			ret.push_back(line);
+			line.clear();
+		} else {
+			line += tmp[i];
 		}
 	}
 
@@ -2248,7 +2385,8 @@ parser::lexicon match(std::sregex_iterator &it, const line_table &ltbl, bool &ig
 #ifdef NABU_DEBUG_PARSER
 
 			return parser::lexicon(
-				new parser::_lexvalue(
+				new parser::lexvalue <std::string> (
+					it->str(index + 1),
 					Node::id, Node::name, line, col
 				)
 			);
@@ -2273,14 +2411,24 @@ parser::lexicon match(std::sregex_iterator &it, const line_table &ltbl, bool &ig
 	return nullptr;
 }
 
-// Exception for lexing
-// TODO: docs -> feel free to use
-struct bad_token : public std::runtime_error {
-public:
-	bad_token(const std::string &s)
-		: std::runtime_error("lexq: read bad token \""
-				+ s + "\"") {}
-};
+// Default error for lexing
+[[noreturn]]
+inline void error(const std::string &str, const line_list &lines, int line, int col)
+{
+	std::string line_str = lines[line];
+	printf("%s[nabu-lexq]%s error: read bad lexicon \"%s\" at line %d, column %d\n",
+		NABU_ERROR_COLOR, NABU_RESET_COLOR,
+		str.c_str(), line + 1, col);
+	printf(" %5d | %s%s%s\n", line + 1,
+		NABU_ERROR_COLOR, line_str.c_str(),
+		NABU_RESET_COLOR);
+	std::string space(col - 1, ' ');
+	std::string squiggle(line_str.size() - col, '~');
+	printf(" %5c | %s%s^%s%s\n", ' ',
+		NABU_ERROR_COLOR, space.c_str(),
+		squiggle.c_str(), NABU_RESET_COLOR);
+	exit(1);
+}
 
 // Split a string without spaces
 inline std::vector <std::string> split(const std::string &str)
@@ -2307,10 +2455,9 @@ inline std::vector <std::string> split(const std::string &str)
 // Lexer error handler
 // TODO: docs -> specialize to overload the handling
 template <class Head>
-void lerror_handler(const std::vector <std::string> &errs)
+void lerror_handler(const std::string &err, const line_list &lines, int line, int col)
 {
-	// TODO: split and strip spaces
-	throw bad_token(errs[0]);
+	error(err, lines, line, col);
 }
 
 // Lexes a string and returns a queue of tokens
@@ -2319,10 +2466,38 @@ Queue lexq(const std::string &source)
 {
 	std::regex re = compile <Head> ();
 
+#ifdef NABU_DEBUG_PARSER
+	
+	printf("%s[nabu-lexq]%s successfully compiled regex: \"%s\"\n",
+		NABU_OK_COLOR, NABU_RESET_COLOR,
+		concat <Head> ().c_str());
+
+	// The idea is to use the regex on a string
+	// 	with all possible characters, so that
+	// 	at least one of them will match
+	std::string _str = "";
+	for (int c = 32; c < 255; c++) {
+		if (isprint(c))
+			_str += (char) c;
+	}
+
+	// Get number of match groups
+	auto b = std::sregex_iterator(_str.begin(), _str.end(), re);
+	auto e = std::sregex_iterator();
+	if (b->size() != _length <Head> () + 1) {
+		printf("%s[nabu-lexq]%s warning: Regex has an excess capture group."
+			" Please remove any capture groups in lexicon"
+			" regex to receive expected results.\n",
+			NABU_WARNING_COLOR, NABU_RESET_COLOR);
+	}
+
+#endif
+
 	std::sregex_iterator begin(source.begin(), source.end(), re);
 	std::sregex_iterator end;
 
 	line_table ltbl = line_column(source);
+	line_list lines = split_lines(source);
 
 	// Store previous index
 	int prev = -1;
@@ -2338,12 +2513,28 @@ Queue lexq(const std::string &source)
 			std::string s = source.substr(prev, pos - prev);
 			std::vector <std::string> sp = split(s);
 
-			if (sp.size() > 0)
-				lerror_handler <Head> (sp);
+			if (sp.size() > 0) {
+				lerror_handler <Head> (sp[0], lines,
+					ltbl[prev].first, ltbl[prev].second);
+			}
 		}
 
 		bool ignored = false;
 		parser::lexicon lptr = match <Head> (it, ltbl, ignored);
+
+		if (lptr == nullptr && !ignore_error && !ignored) {
+			std::string s = source.substr(pos, len);
+			std::vector <std::string> sp = split(s);
+
+			int line = ltbl[pos].first;
+			int col = ltbl[pos].second;
+
+			if (sp.size() > 0)
+				lerror_handler <Head> (sp[0], lines, line, col);
+			
+			std::string c(1, source[pos]);
+			lerror_handler <Head> ({c}, lines, line, col);
+		}
 
 		if (!ignored)
 			q.push_back(lptr);
