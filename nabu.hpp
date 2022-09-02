@@ -25,6 +25,7 @@
 #define NABU_H_
 
 // Standard headers
+#include <cassert>
 #include <deque>
 #include <fstream>
 #include <iomanip>
@@ -66,6 +67,18 @@ std::string type_name()
 {
 	return "<" + _type_name <Args...> ::name() + ">";
 }
+
+#define register(T) \
+	template <> \
+	struct nabu::_type_name <T> { \
+		static std::string name() { \
+			return #T; \
+		} \
+	};
+
+#else
+
+#define register(T)
 
 #endif
 
@@ -2061,6 +2074,8 @@ struct lexvalue : public _lexvalue {
 	// convert to string
 	std::string str() const override {
 
+#ifdef NABU_VERBOSE_OUTPUT
+
 #ifdef NABU_DEBUG_PARSER
 		
 		return "(name: " + std::string(this->name)
@@ -2074,6 +2089,12 @@ struct lexvalue : public _lexvalue {
 			+ ", line: " + convert_string(this->line)
 			+ ", col: " + convert_string(this->col)
 			+ ", value: " + convert_string(value) + ")";
+
+#endif
+
+#else
+
+		return convert_string(value);
 
 #endif
 
@@ -2101,6 +2122,8 @@ struct lexvalue <std::string> : public _lexvalue {
 	// convert to string
 	std::string str() const override {
 
+#ifdef NABU_VERBOSE_OUTPUT
+
 #ifdef NABU_DEBUG_PARSER
 
 		return "(name: " + std::string(this->name)
@@ -2114,6 +2137,12 @@ struct lexvalue <std::string> : public _lexvalue {
 			+ ", line: " + convert_string(this->line)
 			+ ", col: " + convert_string(this->col)
 			+ ", value: \"" + value + "\")";
+
+#endif
+
+#else
+
+		return "\"" + value + "\"";
 
 #endif
 
@@ -2619,13 +2648,27 @@ struct _debugger {
 		static int prev = 0;
 
 		prev = d;
-		if (i != 0)
+		if (i != 0 && (d + i) >= 0)
 			d += i;
 
 		return prev;
 	}
 
-	static std::string indent(int i = 0) {
+	static std::string indent(bool nest, int i = 0) {
+		static std::string langle = "\u2514";
+		static std::string line = "\u2500";
+
+		if (depth() < 1)
+			return std::string(depth(i) * _indent, ' ');
+
+		if (nest) {
+			std::string s = std::string((depth(i) - 1) * _indent, ' ');
+			s += langle;
+			for (int i = 0; i < _indent - 1; i++)
+				s += line;
+			return NABU_WARNING_COLOR + s + NABU_RESET_COLOR;
+		}
+
 		return std::string(depth(i) * _indent, ' ');
 	}
 
@@ -2642,7 +2685,7 @@ struct _debugger {
 	template <class ... Args>
 	static void log_exec() {
 		printf("%s%s[nabu-rd]%s executing grammar action for %s%s%s\n",
-			indent().c_str(),
+			indent(false).c_str(),
 			NABU_NOTE_COLOR, NABU_RESET_COLOR,
 			NABU_ITALIC_COLOR NABU_BOLD_COLOR,
 			type <Args...> ().c_str(),
@@ -2653,7 +2696,7 @@ struct _debugger {
 	template <class ... Args>
 	static void log_grammar() {
 		printf("%s%s[nabu-rd]%s attempting grammar for %s%s%s {\n",
-			indent(1).c_str(),
+			indent(true, 1).c_str(),
 			NABU_WARNING_COLOR, NABU_RESET_COLOR,
 			NABU_ITALIC_COLOR NABU_BOLD_COLOR,
 			type <Args...> ().c_str(),
@@ -2663,12 +2706,12 @@ struct _debugger {
 
 	template <class ... Args>
 	static void log_grammar_success(lexicon lptr) {
-		std::string i1 = indent(-1);
-		std::string i2 = indent();
+		std::string i1 = indent(false, -1);
+		std::string i2 = indent(false);
 		printf("%s%s[nabu-rd]%s success, value = %s\n%s} %s%s%s\n\n",
 			i1.c_str(),
 			NABU_OK_COLOR, NABU_RESET_COLOR,
-			lptr->str().c_str(),
+			lptr ? lptr->str().c_str() : "nullptr",
 			i2.c_str(),
 			NABU_ITALIC_COLOR NABU_BOLD_COLOR,
 			type <Args...> ().c_str(),
@@ -2678,12 +2721,12 @@ struct _debugger {
 
 	template <class ... Args>
 	static void log_grammar_failure(lexicon lptr) {
-		std::string i1 = indent(-1);
-		std::string i2 = indent();
+		std::string i1 = indent(false, -1);
+		std::string i2 = indent(false);
 		printf("%s%s[nabu-rd]%s failure, value = %s\n%s} %s%s%s\n\n",
 			i1.c_str(),
 			NABU_ERROR_COLOR, NABU_RESET_COLOR,
-			lptr->str().c_str(),
+			lptr ? lptr->str().c_str() : "nullptr",
 			i2.c_str(),
 			NABU_ITALIC_COLOR NABU_BOLD_COLOR,
 			type <Args...> ().c_str(),
@@ -2721,22 +2764,12 @@ struct grammar_action {
 // (i.e. option, repeat, alias, etc.)
 template <class T, class ... Args>
 struct execute_grammar_actions {
-	static void exec(lexicon lptr, Queue &q, int i = 0) {
-		// In this case, lptr must be lexvec
-		// TODO: use const
-		vec lvec = get <vec> (lptr);
-		lexicon l = lvec.at(i);
-
-		// TODO: check bounds here
-
+	static void exec(lexicon lptr, Queue &q, int &i) {
 		// Execute for current type
-		execute_grammar_actions <T> ::exec(l, q);
+		execute_grammar_actions <T> ::exec(lptr, q, i);
 
 		// Execute for the following subexpressions
-		if (lvec.size() > i + 2)
-			execute_grammar_actions <Args...> ::exec(lptr, q, i + 1);
-		else
-			execute_grammar_actions <Args...> ::exec(lvec.back(), q);
+		execute_grammar_actions <Args...> ::exec(lptr, q, i);
 	}
 };
 
@@ -2745,10 +2778,17 @@ struct execute_grammar_actions {
 // TODO: simplify this interface
 template <class T>
 struct execute_grammar_actions <T> {
-	static void exec(lexicon lptr, Queue &q, int = -1) {
+	static void exec(lexicon lptr, Queue &q, int &i) {
+		lexicon l = lptr;
+		if (i >= 0) {
+			vec lvec = get <vec> (lptr);
+			l = lvec.at(i++);
+		}
+
 		if (grammar_action <T> ::available) {
 			log_exec(T);
-			grammar_action <T> ::action(lptr, q);
+
+			grammar_action <T> ::action(l, q);
 		}
 	}
 };
@@ -2769,11 +2809,21 @@ struct grammar <T, Args...> {
 	static bool _process(std::vector <lexicon> &v, Queue &q) {
 		log_grammar(T, Args...);
 		if (grammar <T> ::_process(v, q)) {
-			lexicon lptr = v.back();
-			log_grammar_end_success(lptr, T, Args...);
+			if (grammar <Args...> ::_process(v, q)) {
 
-			if (grammar <Args...> ::_process(v, q))
+#ifdef NABU_DEBUG_PARSER
+
+				lexicon lptr(new lexvec(
+					v, 
+					token <decltype(v)> ::id,
+					token <decltype(v)> ::name
+				));
+
+				log_grammar_end_success(lptr, T, Args...);
+
+#endif
 				return true;
+			}
 
 			// Restore last lexicon
 			q.push_front(v.back());
@@ -2799,6 +2849,7 @@ struct grammar <T, Args...> {
 	static lexicon value(Queue &q) {
 		std::vector <lexicon> v;
 		if (_process(v, q)) {
+
 #ifdef NABU_DEBUG_PARSER
 
 			lexicon lptr(new lexvec(
@@ -2814,14 +2865,16 @@ struct grammar <T, Args...> {
 			));
 
 #endif
+
 			// Execute for each term, then for overall grammar
-			execute_grammar_actions <T, Args...> ::exec(lptr, q);
-			if (grammar_action <Args...> ::available)
-				grammar_action <Args...> ::action(lptr, q);
+			int i = 0;
+			execute_grammar_actions <T, Args...> ::exec(lptr, q, i);
+			if (grammar_action <T, Args...> ::available)
+				grammar_action <T, Args...> ::action(lptr, q);
 
 			return lptr;
 		}
-
+	
 		return nullptr;
 	}
 };
@@ -2879,7 +2932,11 @@ struct option {
 			return 0;
 
 		// Try the next option
-		return option <Args...> ::_process(v, q) + 1;
+		int i = option <Args...> ::_process(v, q);
+		if (i >= 0)
+			return i + 1;
+
+		return -1;
 	}
 };
 
@@ -2900,23 +2957,29 @@ struct execute_grammar_actions <option <T, Args...>> {
 	}
 
 	// Execute for option at index
-	static void do_option(lexicon lptr, Queue &q, int i) {
+	static void do_option(lexicon lptr, Queue &q, int index, int &i) {
 		// In this case, lptr must be lexvec
-		if (i == 0)
-			execute_grammar_actions <T> ::exec(lptr, q);
+		if (index == 0)
+			execute_grammar_actions <T> ::exec(lptr, q, i);
 		else
-			execute_grammar_actions <option <Args...>> ::do_option(lptr, q, i - 1);
+			execute_grammar_actions <option <Args...>> ::do_option(lptr, q, index - 1, i);
 	}
 
-	static void exec(lexicon lptr, Queue &q, int = -1) {
-		if (map().find(lptr) != map().end()) {
-			do_option(lptr, q, map().at(lptr));
-			map().erase(lptr);
+	static void exec(lexicon lptr, Queue &q, int &i) {
+		lexicon l = lptr;
+		if (i >= 0) {
+			vec v = get <vec> (lptr);
+			l = v.at(i);
+		}
+
+		if (map().find(l) != map().end()) {
+			do_option(lptr, q, map().at(l), i);
+			map().erase(l);
 		}
 
 		if (grammar_action <option <T, Args...>> ::available) {
 			log_exec(option <T, Args...>);
-			grammar_action <option <T, Args...>> ::action(lptr, q);
+			grammar_action <option <T, Args...>> ::action(l, q);
 		}
 	}
 };
@@ -2929,21 +2992,27 @@ struct execute_grammar_actions <option <T>> {
 		return m;
 	}
 
-	static void do_option(lexicon lptr, Queue &q, int i) {
+	static void do_option(lexicon lptr, Queue &q, int index, int &i) {
 		// In this case, lptr must be lexvec
-		if (i == 0)
-			execute_grammar_actions <T> ::exec(lptr, q);
+		if (index == 0)
+			execute_grammar_actions <T> ::exec(lptr, q, i);
 	}
 
-	static void exec(lexicon lptr, Queue &q, int = -1) {
-		if (map().find(lptr) != map().end()) {
-			do_option(lptr, q, map().at(lptr));
-			map().erase(lptr);
+	static void exec(lexicon lptr, Queue &q, int &i) {
+		lexicon l = lptr;
+		if (i >= 0) {
+			vec v = get <vec> (lptr);
+			l = v.at(i);
+		}
+
+		if (map().find(l) != map().end()) {
+			do_option(lptr, q, map().at(l), i);
+			map().erase(l);
 		}
 
 		if (grammar_action <option <T>> ::available) {
 			log_exec(option <T>);
-			grammar_action <option <T>> ::action(lptr, q);
+			grammar_action <option <T>> ::action(l, q);
 		}
 	}
 };
@@ -2953,16 +3022,20 @@ struct grammar <option <Args...>> {
 	// Process function
 	static bool _process(std::vector <lexicon> &v, Queue &q) {
 		log_grammar(option <Args...>);
+		int size = v.size();
 		int index = option <Args...> ::_process(v, q);
 		if (index >= 0) {
 			log_grammar_end_success(v.back(), option <Args...>);
+
 			// Store the index of the option
+			lexicon lptr = v.at(size);
 			execute_grammar_actions <option <Args...>>
-				::map().insert(std::make_pair(v.back(), index));
+				::map().insert(std::make_pair(lptr, index));
+
 			return true;
 		}
 
-		log_grammar_end_failure(v.back(), option <Args...>);
+		log_grammar_end_failure(nullptr, option <Args...>);
 		return false;
 	}
 
@@ -2974,12 +3047,28 @@ struct grammar <option <Args...>> {
 
 		std::vector <lexicon> v;
 		if (_process(v, q)) {
-			lexicon lptr = v.back();
+
+#ifdef NABU_DEBUG_PARSER
+
+			lexicon lptr(new lexvec(
+				v, 
+				token <decltype(v)> ::id,
+				token <decltype(v)> ::name
+			));
+
+#else
+
+			lexicon lptr(new lexvec(
+				v, token <decltype(v)> ::id
+			));
+
+#endif
 
 			// The action for "selected" option has already
 			// been executed, so we just need to execute
 			// the overall grammar action
-			execute_grammar_actions <Args...> ::exec(lptr, q);
+			int i = 0;
+			execute_grammar_actions <Args...> ::exec(lptr, q, i);
 			if (grammar_action <option <Args...>> ::available)
 				grammar_action <option <Args...>> ::action(lptr, q);
 
@@ -3023,50 +3112,135 @@ struct grammar <void> {
 // when the number of times is less than 0,
 // it will repeat forever (as long as the
 // grammar is valid)
-template <class T, int N = -1, int M = -1>
+template <class T, int N = -1>
 struct repeat {
-	static lexicon value(Queue &q) {
-		std::vector <lexicon> v;
+	static bool _process(std::vector <lexicon> &v, Queue &q) {
+		log_grammar(repeat <T, N>);
+		if (N < 0) {
+			std::vector <lexicon> v2;
 
-		int tmp = N;
-		while (tmp < 0 || tmp-- == 0) {
-			lexicon lptr = grammar <T> ::value(q);
-			if (lptr)
-				v.push_back(lptr);
-			else
-				break;
-		}
+			int matches = 0;
+			while (grammar <T> ::_process(v2, q))
+				matches++;
 
-                // Check if minimum number of times is met
-                if (M > 0 && v.size() < M)
-                        return nullptr;
+			if (matches > 0) {
+				execute_grammar_actions
+					<repeat <T, N>> ::map().insert(
+						std::make_pair(v2.front(), matches)
+					);
+			}
 
 #ifdef NABU_DEBUG_PARSER
 
-		return lexicon(new lexvec(
-			v, 
-			token <decltype(v)> ::id,
-			token <decltype(v)> ::name
-		));
-
-#else
-
-		return lexicon(new lexvec(
-			v, token <decltype(v)> ::id
-		));
+			lexicon lptr(new lexvec(v2,
+				token <repeat <T, N>> ::id,
+				token <repeat <T, N>> ::name
+			));
+			
+			log_grammar_end_success(lptr, repeat <T, N>);
 
 #endif
 
+			v.insert(v.end(), v2.begin(), v2.end());
+			return true;
+		}
+
+		std::vector <lexicon> v2;
+		for (int i = 0; i < N; i++) {
+			if (!grammar <T> ::_process(v2, q)) {
+				log_grammar_end_failure(nullptr, repeat <T, N>);
+				return false;
+			}
+		}
+
+#ifdef NABU_DEBUG_PARSER
+
+		lexicon lptr(new lexvec(v2,
+			token <repeat <T, N>> ::id,
+			token <repeat <T, N>> ::name
+		));
+
+		log_grammar_end_success(lptr, repeat <T, N>);
+
+#endif
+		
+		v.insert(v.end(), v2.begin(), v2.end());
+		return true;
+	}
+};
+
+// Execute grammar actions for repeat
+template <class T, int N>
+struct execute_grammar_actions <repeat <T, N>> {
+	// Map start of match to length
+	static std::map <lexicon, int> &map() {
+		static std::map <lexicon, int> m;
+		return m;
+	}
+
+	// TODO: refactor exec to take a list of lexicons
+	// instead of repeatedly casting...
+	static void exec(lexicon lptr, Queue &q, int &i) {
+		// TODO: islist? to check if lptr is lexvec
+		lexicon l = lptr;
+		if (i >= 0) {
+			vec v = get <vec> (lptr);
+			l = v.at(i++);
+		}
+
+		vec v = get <vec> (l);
+		for (int i = 0; i < v.size(); i++)
+			lexicon l = v.at(i);
+
+		int ci = 0;
+		if (N >= 0) {
+			for (int j = 0; j < N; j++)
+				execute_grammar_actions <T> ::exec(l, q, ci);
+		} else if (v.size() > 0) {
+			lexicon f = v.at(0);
+
+			int matches = 0;
+			if (map().count(f) > 0)
+				matches = map().at(f);
+
+			// Execute grammar actions for each match
+			for (int j = 0; j < matches; j++)
+				execute_grammar_actions <T> ::exec(l, q, ci);
+		}
+
+		// Execute overall grammar action
+		if (grammar_action <repeat <T, N>> ::available) {
+			log_exec(repeat <T, N>);
+			grammar_action <repeat <T, N>> ::action(l, q);
+		}
 	}
 };
 
 // Overload grammar for repeats
-template <class T, int N, int M>
-struct grammar <repeat <T, N, M>> {
+template <class T, int N>
+struct grammar <repeat <T, N>> {
 	// Process function
-	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		lexicon lptr = repeat <T, N, M> ::value(q);
-		if (lptr) {
+	static bool _process(vec &v, Queue &q) {
+		vec v2;
+		if (repeat <T, N> ::_process(v2, q)) {
+
+#ifdef NABU_DEBUG_PARSER
+
+			lexicon lptr(new lexvec(
+				v2, 
+				token <vec> ::id,
+				token <vec> ::name
+			));
+
+#else
+
+			lexicon lptr(new lexvec(
+				v2, 
+				token <vec> ::id
+			));
+
+#endif
+
 			v.push_back(lptr);
 			return true;
 		}
@@ -3080,10 +3254,27 @@ struct grammar <repeat <T, N, M>> {
 		if (q.empty())
 			return nullptr;
 
-		lexicon lptr = repeat <T, N, M> ::value(q);
-		if (lptr) {
-			if (grammar_action <repeat <T, N, M>> ::available)
-				grammar_action <repeat <T, N, M>> ::action(lptr, q);
+		std::vector <lexicon> v;
+		if (_process(v, q)) {
+
+#ifdef NABU_DEBUG_PARSER
+
+			lexicon lptr(new lexvec(v,
+				token <repeat <T, N>> ::id,
+				token <repeat <T, N>> ::name
+			));
+
+#else
+
+			lexicon lptr(new lexvec(v,
+				token <repeat <T, N>> ::id
+			));
+
+#endif
+
+			// Execute the grammar action
+			int i = 0;
+			execute_grammar_actions <repeat <T, N>> ::exec(lptr, q, i);
 			return lptr;
 		}
 
@@ -3097,11 +3288,18 @@ struct alias {};
 
 template <class ... Args>
 struct execute_grammar_actions <alias <Args...>> {
-	static void exec(lexicon &lptr, Queue &q, int = -1) {
-		execute_grammar_actions <Args...> ::exec(lptr, q);
+	static void exec(lexicon &lptr, Queue &q, int &i) {
+		lexicon l = lptr;
+		if (i >= 0) {
+			vec v = get <vec> (lptr);
+			l = v.at(i++);
+		}
+
+		int ci = 0;
+		execute_grammar_actions <Args...> ::exec(l, q, ci);
 		if (grammar_action <alias <Args...>> ::available) {
 			log_exec(alias <Args...>);
-			grammar_action <alias <Args...>> ::action(lptr, q);
+			grammar_action <alias <Args...>> ::action(l, q);
 		}
 	}
 };
@@ -3110,19 +3308,41 @@ struct execute_grammar_actions <alias <Args...>> {
 template <class ... Args>
 struct grammar <alias <Args...>> {
 	// Process function
-	static bool _process(std::vector <lexicon> &v, Queue &q) {
+	static bool _process(vec &v, Queue &q) {
 		log_grammar(alias <Args...>);
-		if (grammar <Args...> ::_process(v, q)) {
-			log_grammar_end_success(v.back(), alias <Args...>);
+
+		vec v2;
+		if (grammar <Args...> ::_process(v2, q)) {
+
+#ifdef NABU_DEBUG_PARSER
+
+			lexicon lptr(new lexvec(
+				v2, 
+				token <vec> ::id,
+				token <vec> ::name
+			));
+
+			log_grammar_end_success(lptr, alias <Args...>);
+
+#else
+
+			lexicon lptr(new lexvec(
+				v2, 
+				token <vec> ::id
+			));
+
+#endif
+
+			v.push_back(lptr);
 			return true;
 		}
 
 #ifdef NABU_DEBUG_PARSER
 
 		lexicon lptr(new lexvec(
-			v, 
-			token <decltype(v)> ::id,
-			token <decltype(v)> ::name
+			v2, 
+			token <vec> ::id,
+			token <vec> ::name
 		));
 		
 		log_grammar_end_failure(lptr, alias <Args...>);
@@ -3153,7 +3373,8 @@ struct grammar <alias <Args...>> {
 
 #endif
 
-			execute_grammar_actions <Args...> ::exec(lptr, q);
+			int i = 0;
+			execute_grammar_actions <Args...> ::exec(lptr, q, i);
 			if (grammar_action <alias <Args...>> ::available) {
 				log_exec(alias <Args...>);
 				grammar_action <alias <Args...>> ::action(lptr, q);
@@ -3173,10 +3394,11 @@ struct grammar <alias <Args...>> {
 #ifdef NABU_DEBUG_GENERIC
 
 // Type names for this namespace
-template <class T, int N, int M>
-struct _type_name <parser::rd::repeat <T, N, M>> {
+template <class T, int N>
+struct _type_name <parser::rd::repeat <T, N>> {
 	static std::string name() {
-		return "repeat <" + _type_name <T> ::name() + ", " + std::to_string(N) + ", " + std::to_string(M) + ">";
+		return "repeat <" + _type_name <T> ::name() 
+			+ ", " + std::to_string(N) + ">";
 	}
 };
 
@@ -3226,7 +3448,7 @@ inline std::string convert_string <std::vector <parser::lexicon>>
 
 #ifdef NABU_DEBUG_PARSER
 
-	std::string s = "lexvec {";
+	std::string s = "vec {";
 	for (int i = 0; i < v.size(); i++) {
 		s += v[i]->str();
 		if (i != v.size() - 1)
