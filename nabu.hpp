@@ -2781,8 +2781,8 @@ struct execute_grammar_actions <T> {
 	static void exec(lexicon lptr, Queue &q, int &i) {
 		lexicon l = lptr;
 		if (i >= 0) {
-			vec lvec = get <vec> (lptr);
-			l = lvec.at(i++);
+			vec v = get <vec> (lptr);
+			l = v.at(i++);
 		}
 
 		if (grammar_action <T> ::available) {
@@ -3374,12 +3374,7 @@ struct grammar <alias <Args...>> {
 #endif
 
 			int i = 0;
-			execute_grammar_actions <Args...> ::exec(lptr, q, i);
-			if (grammar_action <alias <Args...>> ::available) {
-				log_exec(alias <Args...>);
-				grammar_action <alias <Args...>> ::action(lptr, q);
-			}
-
+			execute_grammar_actions <alias <Args...>> ::exec(lptr, q, i);
 			return lptr;
 		}
 
