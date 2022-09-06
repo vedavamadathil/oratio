@@ -3084,6 +3084,10 @@ template <>
 struct grammar <void> {
 	// Blank process function
 	static bool _process(std::vector <lexicon> &v, Queue &q) {
+		log_grammar(void);
+		lexicon lptr = grammar <void> ::value(q);
+		v.push_back(lptr);
+		log_grammar_end_success(lptr, void);
 		return true;
 	}
 
