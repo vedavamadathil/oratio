@@ -2176,6 +2176,30 @@ inline std::vector <lexicon> tovec(lexicon lptr)
 	return ((lexvec *) lptr.get())->value;
 }
 
+// Lexicon factory
+template <class T>
+inline lexicon make(const T &x)
+{
+
+#ifdef NABU_DEBUG_PARSER
+
+		lexicon lptr(new lexvalue <T> (
+			x, 
+			token <decltype(x)> ::id,
+			token <decltype(x)> ::name
+		));
+
+#else
+
+		lexicon lptr(new lexvalue <T> (
+			x, token <decltype(x)> ::id
+		));
+
+#endif
+
+	return lptr;
+}
+
 // Read a an expected token
 template <class E>
 bool expect(Queue &q)
@@ -2751,638 +2775,358 @@ struct _debugger {
 
 #endif
 
+// Dual queue system for parsing and restoring on failure
+class DualQueue {
+	Queue &q;
+	Queue r;
+public:
+	DualQueue(Queue &q_) : q(q_) {}
+
+	// No copy constructor
+	DualQueue(const DualQueue &) = delete;
+	DualQueue &operator=(const DualQueue &) = delete;
+
+	lexicon front() {
+		return q.front();
+	}
+
+	void pop() {
+		if (q.size() > 0) {
+			lexicon lptr = q.front();
+			q.pop_front();
+			r.push_back(lptr);
+		}
+
+		// TODO: should throw instead?
+	}
+
+	void restore() {
+		while (r.size() > 0) {
+			q.push_front(r.back());
+			r.pop_back();
+		}
+	}
+
+	bool empty() {
+		return q.empty();
+	}
+};
+
 // Grammar actions
 // 	performed when a grammar is matched
+//
+// TODO: plain function
 template <class ... Args>
 struct grammar_action {
-	static constexpr bool available = false;
-	static void action(lexicon, Queue &) {}
+	static void action(DualQueue &, const lexicon &) {}
 };
 
-// Execute grammar actions: should execute for each
-// in sequence, and also some nested types
-// (i.e. option, repeat, alias, etc.)
+// Nested grammar groups
 template <class T, class ... Args>
-struct execute_grammar_actions {
-	static void exec(lexicon lptr, Queue &q, int &i) {
-		// Execute for current type
-		execute_grammar_actions <T> ::exec(lptr, q, i);
+struct alias {};
 
-		// Execute for the following subexpressions
-		execute_grammar_actions <Args...> ::exec(lptr, q, i);
+// Alternative grammar groups
+template <class T, class ... Args>
+struct option {
+	// Map of lexicon to option index
+	static std::map <lexicon, int> &map() {
+		static std::map <lexicon, int> m;
+		return m;
 	}
 };
 
-// Execution for single grammar
+// Repetition grammar groups
+template <class T, int N = -1>
+struct repeat {};
 
-// TODO: simplify this interface
-template <class T>
-struct execute_grammar_actions <T> {
-	static void exec(lexicon lptr, Queue &q, int &i) {
-		lexicon l = lptr;
-		if (i >= 0) {
-			vec v = get <vec> (lptr);
-			l = v.at(i++);
-		}
+// TODO: clean up from here...
+template <class T, class ... Args>
+struct execute;
 
-		if (grammar_action <T> ::available) {
+template <class U, class ... V>
+static void exec_step(DualQueue &dq, const vec &v, int i) {
+	execute <U> ::exec(dq, v.at(i));
+
+	if constexpr (sizeof...(V) > 0) {
+		// Execute nested grammar actions
+		exec_step <V...> (dq, v, i + 1);
+	}
+}
+
+// Execute grammar actions
+// 	Executes each single grammar action
+// 	before executing the overall grammar action
+//
+// 	i.e. grammar_action <A, B, C> will execute
+// 		A::action()
+// 		B::action()
+// 		C::action()
+// 		<A, B, C>::action()
+//
+// 	In particular note that subexpressions like
+// 	<A, B> and <B, C> will not be executed
+template <class T, class ... Args>
+struct execute {
+	static void exec(DualQueue &dq, const lexicon &lptr) {
+		if constexpr (sizeof...(Args) == 0) {
+			// Single grammar action
 			log_exec(T);
+			grammar_action <T> ::action(dq, lptr);
+		} else {
+			// Execute nested grammar actions
+			vec v = tovec(lptr);
+			exec_step <T, Args...> (dq, v, 0);
 
-			grammar_action <T> ::action(l, q);
+			log_exec(T, Args...);
+			grammar_action <T, Args...> ::action(dq, lptr);
 		}
 	}
 };
 
-// A grammar becomes a sequence of lexicon types
-//	uses the lexid to compare with the lexicons
-template <class ... Args>
-struct grammar {
-	static lexicon value(Queue &q) {
-		return nullptr;
+// Speciliaze for alias
+template <class T, class ... Args>
+struct execute <alias <T, Args...>> {
+	static void exec(DualQueue &dq, const lexicon &lptr) {
+		if constexpr (sizeof...(Args) == 0) {
+			// Single lexicon, no need to expand
+			execute <T> ::exec(dq, lptr);
+
+			// Overall grammar action
+			log_exec(alias <T>);
+			grammar_action <alias <T>> ::action(dq, lptr);
+		} else {
+			// Expand lexicon
+			vec v = tovec(lptr);
+			exec_step <T, Args...> (dq, v, 0);
+
+			// Overall grammar action
+			log_exec(alias <T, Args...>);
+			grammar_action <alias <T, Args...>> ::action(dq, lptr);
+		}
+	}
+};
+
+// Speciliaze for option
+template <class T, class ... Args>
+struct execute <option <T, Args...>> {
+	static void do_option(DualQueue &dq, const lexicon &lptr, int i) {
+		if (i == 0)
+			return execute <T> ::exec(dq, lptr);
+
+		if constexpr (sizeof...(Args) > 0)
+			execute <option <Args...>> ::do_option(dq, lptr, i - 1);
+	}
+
+	static void exec(DualQueue &dq, const lexicon &lptr) {
+		// Never nested, so no need to expand lexicon
+		int i = option <T, Args...> ::map().at(lptr);
+
+		// Execute single grammar action
+		do_option(dq, lptr, i);
+
+		// Overall grammar action
+		log_exec(option <T, Args...>);
+		grammar_action <option <T, Args...>> ::action(dq, lptr);
+	}
+};
+
+// Speciliaze for repeat
+template <class T, int N>
+struct execute <repeat <T, N>> {
+	static void exec(DualQueue &dq, const lexicon &lptr) {
+		// Always nested, so expand lexicon
+		vec v = tovec(lptr);
+
+		assert(N < 0 || v.size() == N);
+		for (int i = 0; i < v.size(); i++)
+			execute <T> ::exec(dq, v.at(i));
+
+		// Overall grammar action
+		log_exec(repeat <T, N>);
+		grammar_action <repeat <T, N>> ::action(dq, lptr);
 	}
 };
 
 // Recursion for grammar
 template <class T, class ... Args>
-struct grammar <T, Args...> {
-	// Process function
-	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		log_grammar(T, Args...);
-		if (grammar <T> ::_process(v, q)) {
-			if (grammar <Args...> ::_process(v, q)) {
-
-#ifdef NABU_DEBUG_PARSER
-
-				lexicon lptr(new lexvec(
-					v, 
-					token <decltype(v)> ::id,
-					token <decltype(v)> ::name
-				));
-
-				log_grammar_end_success(lptr, T, Args...);
-
-#endif
-				return true;
+struct grammar {
+	template <class U, class ... V>
+	static bool _process(DualQueue &dq, vec &v) {
+		lexicon lptr = grammar <U> ::value(dq, false);
+		if (lptr) {
+			if constexpr (sizeof...(V) > 0) {
+				if (!_process <V...> (dq, v))
+					return false;
 			}
 
-			// Restore last lexicon
-			q.push_front(v.back());
-			v.pop_back();
-		}
-
-#ifdef NABU_DEBUG_PARSER
-		
-		lexicon lptr(new lexvec(
-			v, 
-			token <decltype(v)> ::id,
-			token <decltype(v)> ::name
-		));
-
-		log_grammar_end_failure(lptr, T, Args...);
-
-#endif
-
-		return false;
-	}
-
-	// Default grammar
-	static lexicon value(Queue &q) {
-		std::vector <lexicon> v;
-		if (_process(v, q)) {
-
-#ifdef NABU_DEBUG_PARSER
-
-			lexicon lptr(new lexvec(
-				v, 
-				token <decltype(v)> ::id,
-				token <decltype(v)> ::name
-			));
-
-#else
-
-			lexicon lptr(new lexvec(
-				v, token <decltype(v)> ::id
-			));
-
-#endif
-
-			// Execute for each term, then for overall grammar
-			int i = 0;
-			execute_grammar_actions <T, Args...> ::exec(lptr, q, i);
-			if (grammar_action <T, Args...> ::available)
-				grammar_action <T, Args...> ::action(lptr, q);
-
-			return lptr;
-		}
-	
-		return nullptr;
-	}
-};
-
-// Single element returns a single lexicon
-template <class T>
-struct grammar <T> {
-	// Process function
-	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		if (q.empty())
-			return false;
-
-		log_grammar(T);
-		lexicon lptr = q.front();
-		if (lptr && lptr->id == token <T> ::id) {
-			v.push_back(lptr);
-			q.pop_front();
-			log_grammar_end_success(lptr, T);
-
+			v.insert(v.begin(), lptr);
 			return true;
 		}
 
-		log_grammar_end_failure(lptr, T);
 		return false;
 	}
 
-	// Default grammar
-	static lexicon value(Queue &q) {
-		// Skip if empty queue
-		if (q.empty())
-			return nullptr;
+	static lexicon value(DualQueue &dq, bool exec = true) {
+		if constexpr (sizeof...(Args) == 0) {
+			// Single grammar
+			if (dq.empty())
+				return nullptr;
 
-		log_grammar(T);
-		lexicon lptr = q.front();
-		if (lptr && lptr->id == token <T> ::id) {
-			q.pop_front();
+			log_grammar(T);
+			lexicon lptr = dq.front();
+			if (!lptr || lptr->id != token <T> ::id) {
+				log_grammar_end_failure(lptr, T);
+				return nullptr;
+			}
+
 			log_grammar_end_success(lptr, T);
+			if (exec)
+				execute <T> ::exec(dq, lptr);
 
-			if (grammar_action <T> ::available)
-				grammar_action <T> ::action(lptr, q);
+			dq.pop();
+			return lptr;
+		}
+
+		// Multiple arguments
+		log_grammar(T, Args...);
+
+		vec v;
+		if (_process <T, Args...> (dq, v)) {
+			lexicon lptr = make(v);
+			log_grammar_end_success(lptr, T, Args...);
+			if (exec)
+				execute <T, Args...> ::exec(dq, lptr);
 
 			return lptr;
 		}
 
-		log_grammar_end_failure(lptr, T);
+		if (exec)
+			dq.restore();
+
+		log_grammar_end_failure(nullptr, T, Args...);
 		return nullptr;
 	}
 };
 
-// Option/alternative grammar
+// Void grammar as epsilon (no action)
+template <>
+struct grammar <void> {
+	static lexicon value(DualQueue &dq, bool exec = true) {
+		log_grammar(void);
+		log_grammar_end_success(nullptr, void);
+		lexicon lptr = make(-1);
+		if (exec)
+			execute <void> ::exec(dq, lptr);
+		return lptr;
+	}
+};
+
+// Alias grammar
 template <class T, class ... Args>
-struct option {
-	static int _process(std::vector <lexicon> &v, Queue &q) {
-		if (grammar <T> ::_process(v, q))
+struct grammar <alias <T, Args...>> {
+	static lexicon value(DualQueue &dq, bool exec = true) {
+		log_grammar(alias <T, Args...>);
+		lexicon lptr = grammar <T, Args...> ::value(dq, false);
+		if (lptr) {
+			log_grammar_end_success(lptr, alias <T, Args...>);
+			if (exec)
+				execute <alias <T, Args...>> ::exec(dq, lptr);
+			return lptr;
+		}
+
+		if (exec)
+		     dq.restore();
+
+		log_grammar_end_failure(nullptr, alias <T, Args...>);
+		return lptr;
+	}
+};
+
+// Option grammar
+template <class T, class ... Args>
+struct grammar <option <T, Args...>> {
+	static int _process(DualQueue &dq, lexicon &lptr) {
+		if ((lptr = grammar <T> ::value(dq, false)))
 			return 0;
 
-		// Try the next option
-		int i = option <Args...> ::_process(v, q);
-		if (i >= 0)
-			return i + 1;
+		if constexpr (sizeof...(Args) > 0) {
+			int i = grammar <option <Args...>> ::_process(dq, lptr);
+			if (i >= 0)
+				return i + 1;
+		}
 
 		return -1;
 	}
-};
 
-template <class T>
-struct option <T> {
-	static int _process(std::vector <lexicon> &v, Queue &q) {
-		return grammar <T> ::_process(v, q) ? 0 : -1;
-	}
-};
+	static lexicon value(DualQueue &dq, bool exec = true) {
+		log_grammar(option <T, Args...>);
 
-// TODO: simplify pleaseee
-template <class T, class ... Args>
-struct execute_grammar_actions <option <T, Args...>> {
-	// Map of lexicon to option index
-	static std::map <lexicon, int> &map() {
-		static std::map <lexicon, int> m;
-		return m;
-	}
-
-	// Execute for option at index
-	static void do_option(lexicon lptr, Queue &q, int index, int &i) {
-		// In this case, lptr must be lexvec
-		if (index == 0)
-			execute_grammar_actions <T> ::exec(lptr, q, i);
-		else
-			execute_grammar_actions <option <Args...>> ::do_option(lptr, q, index - 1, i);
-	}
-
-	static void exec(lexicon lptr, Queue &q, int &i) {
-		lexicon l = lptr;
+		lexicon lptr;
+		int i = _process(dq, lptr);
 		if (i >= 0) {
-			vec v = get <vec> (lptr);
-			l = v.at(i);
-		}
+			log_grammar_end_success(lptr, option <T, Args...>);
 
-		if (map().find(l) != map().end()) {
-			do_option(lptr, q, map().at(l), i);
-			map().erase(l);
-		}
-
-		if (grammar_action <option <T, Args...>> ::available) {
-			log_exec(option <T, Args...>);
-			grammar_action <option <T, Args...>> ::action(l, q);
-		}
-	}
-};
-
-template <class T>
-struct execute_grammar_actions <option <T>> {
-	// Map of lexicon to option index
-	static std::map <lexicon, int> &map() {
-		static std::map <lexicon, int> m;
-		return m;
-	}
-
-	static void do_option(lexicon lptr, Queue &q, int index, int &i) {
-		// In this case, lptr must be lexvec
-		if (index == 0)
-			execute_grammar_actions <T> ::exec(lptr, q, i);
-	}
-
-	static void exec(lexicon lptr, Queue &q, int &i) {
-		lexicon l = lptr;
-		if (i >= 0) {
-			vec v = get <vec> (lptr);
-			l = v.at(i);
-		}
-
-		if (map().find(l) != map().end()) {
-			do_option(lptr, q, map().at(l), i);
-			map().erase(l);
-		}
-
-		if (grammar_action <option <T>> ::available) {
-			log_exec(option <T>);
-			grammar_action <option <T>> ::action(l, q);
-		}
-	}
-};
-
-template <class ... Args>
-struct grammar <option <Args...>> {
-	// Process function
-	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		log_grammar(option <Args...>);
-		int size = v.size();
-		int index = option <Args...> ::_process(v, q);
-		if (index >= 0) {
-			log_grammar_end_success(v.back(), option <Args...>);
-
-			// Store the index of the option
-			lexicon lptr = v.at(size);
-			execute_grammar_actions <option <Args...>>
-				::map().insert(std::make_pair(lptr, index));
-
-			return true;
-		}
-
-		log_grammar_end_failure(nullptr, option <Args...>);
-		return false;
-	}
-
-	// Default grammar
-	static lexicon value(Queue &q) {
-		// Skip if empty queue
-		if (q.empty())
-			return nullptr;
-
-		std::vector <lexicon> v;
-		if (_process(v, q)) {
-
-#ifdef NABU_DEBUG_PARSER
-
-			lexicon lptr(new lexvec(
-				v, 
-				token <decltype(v)> ::id,
-				token <decltype(v)> ::name
-			));
-
-#else
-
-			lexicon lptr(new lexvec(
-				v, token <decltype(v)> ::id
-			));
-
-#endif
-
-			// The action for "selected" option has already
-			// been executed, so we just need to execute
-			// the overall grammar action
-			int i = 0;
-			execute_grammar_actions <Args...> ::exec(lptr, q, i);
-			if (grammar_action <option <Args...>> ::available)
-				grammar_action <option <Args...>> ::action(lptr, q);
-
+			option <T, Args...> ::map().insert({lptr, i});
+			if (exec)
+				execute <option <T, Args...>> ::exec(dq, lptr);
 			return lptr;
 		}
 
+		if (exec)
+			dq.restore();
+
+		log_grammar_end_failure(nullptr, option <T, Args...>);
 		return nullptr;
 	}
 };
 
-// Overload grammar for void (as epsilon)
-template <>
-struct grammar <void> {
-	// Blank process function
-	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		log_grammar(void);
-		lexicon lptr = grammar <void> ::value(q);
-		v.push_back(lptr);
-		log_grammar_end_success(lptr, void);
-		return true;
-	}
-
-	// Blank grammar
-	static lexicon value(Queue &q) {
-
-#ifdef NABU_DEBUG_PARSER
-
-		return lexicon(new _lexvalue(
-			token <void> ::id,
-			token <void> ::name
-		));
-
-#else
-
-		return lexicon(new _lexvalue {
-			token <void> ::id
-		});
-
-#endif
-
-	}
-};
-
-// Repeat a grammar
-// when the number of times is less than 0,
-// it will repeat forever (as long as the
-// grammar is valid)
-template <class T, int N = -1>
-struct repeat {
-	static bool _process(std::vector <lexicon> &v, Queue &q) {
-		log_grammar(repeat <T, N>);
-		if (N < 0) {
-			std::vector <lexicon> v2;
-
-			int matches = 0;
-			while (grammar <T> ::_process(v2, q))
-				matches++;
-
-			if (matches > 0) {
-				execute_grammar_actions
-					<repeat <T, N>> ::map().insert(
-						std::make_pair(v2.front(), matches)
-					);
-			}
-
-#ifdef NABU_DEBUG_PARSER
-
-			lexicon lptr(new lexvec(v2,
-				token <repeat <T, N>> ::id,
-				token <repeat <T, N>> ::name
-			));
-			
-			log_grammar_end_success(lptr, repeat <T, N>);
-
-#endif
-
-			v.insert(v.end(), v2.begin(), v2.end());
-			return true;
-		}
-
-		std::vector <lexicon> v2;
-		for (int i = 0; i < N; i++) {
-			if (!grammar <T> ::_process(v2, q)) {
-				log_grammar_end_failure(nullptr, repeat <T, N>);
-				return false;
-			}
-		}
-
-#ifdef NABU_DEBUG_PARSER
-
-		lexicon lptr(new lexvec(v2,
-			token <repeat <T, N>> ::id,
-			token <repeat <T, N>> ::name
-		));
-
-		log_grammar_end_success(lptr, repeat <T, N>);
-
-#endif
-		
-		v.insert(v.end(), v2.begin(), v2.end());
-		return true;
-	}
-};
-
-// Execute grammar actions for repeat
-template <class T, int N>
-struct execute_grammar_actions <repeat <T, N>> {
-	// Map start of match to length
-	static std::map <lexicon, int> &map() {
-		static std::map <lexicon, int> m;
-		return m;
-	}
-
-	// TODO: refactor exec to take a list of lexicons
-	// instead of repeatedly casting...
-	static void exec(lexicon lptr, Queue &q, int &i) {
-		// TODO: islist? to check if lptr is lexvec
-		lexicon l = lptr;
-		if (i >= 0) {
-			vec v = get <vec> (lptr);
-			l = v.at(i++);
-		}
-
-		vec v = get <vec> (l);
-		for (int i = 0; i < v.size(); i++)
-			lexicon l = v.at(i);
-
-		int ci = 0;
-		if (N >= 0) {
-			for (int j = 0; j < N; j++)
-				execute_grammar_actions <T> ::exec(l, q, ci);
-		} else if (v.size() > 0) {
-			lexicon f = v.at(0);
-
-			int matches = 0;
-			if (map().count(f) > 0)
-				matches = map().at(f);
-
-			// Execute grammar actions for each match
-			for (int j = 0; j < matches; j++)
-				execute_grammar_actions <T> ::exec(l, q, ci);
-		}
-
-		// Execute overall grammar action
-		if (grammar_action <repeat <T, N>> ::available) {
-			log_exec(repeat <T, N>);
-			grammar_action <repeat <T, N>> ::action(l, q);
-		}
-	}
-};
-
-// Overload grammar for repeats
+// Repetition grammar
 template <class T, int N>
 struct grammar <repeat <T, N>> {
-	// Process function
-	static bool _process(vec &v, Queue &q) {
-		vec v2;
-		if (repeat <T, N> ::_process(v2, q)) {
+	static lexicon value(DualQueue &dq, bool exec = true) {
+		log_grammar(repeat <T, N>);
 
-#ifdef NABU_DEBUG_PARSER
+		vec v;
+		if constexpr (N < 0) {
+			// Repeat until failure (always succeeds)
+			while (true) {
+				lexicon lptr = grammar <T> ::value(dq, false);
+				if (!lptr)
+					break;
 
-			lexicon lptr(new lexvec(
-				v2, 
-				token <vec> ::id,
-				token <vec> ::name
-			));
+				v.insert(v.begin(), lptr);
+			}
 
-#else
+			lexicon lptr = make(v);
+			log_grammar_end_success(lptr, repeat <T, N>);
 
-			lexicon lptr(new lexvec(
-				v2, 
-				token <vec> ::id
-			));
+			if (exec)
+				execute <repeat <T, N>> ::exec(dq, lptr);
 
-#endif
-
-			v.push_back(lptr);
-			return true;
-		}
-
-		return false;
-	}
-
-	// Default grammar
-	static lexicon value(Queue &q) {
-		// Skip if empty queue
-		if (q.empty())
-			return nullptr;
-
-		std::vector <lexicon> v;
-		if (_process(v, q)) {
-
-#ifdef NABU_DEBUG_PARSER
-
-			lexicon lptr(new lexvec(v,
-				token <repeat <T, N>> ::id,
-				token <repeat <T, N>> ::name
-			));
-
-#else
-
-			lexicon lptr(new lexvec(v,
-				token <repeat <T, N>> ::id
-			));
-
-#endif
-
-			// Execute the grammar action
-			int i = 0;
-			execute_grammar_actions <repeat <T, N>> ::exec(lptr, q, i);
 			return lptr;
 		}
 
-		return nullptr;
-	}
-};
+		// Repeat N times
+		for (int i = 0; i < N; i++) {
+			lexicon lptr = grammar <T> ::value(dq, false);
+			if (!lptr) {
+				if (exec)
+					dq.restore();
 
-// Creating aliases more easily
-template <class ... Args>
-struct alias {};
+				log_grammar_end_failure(nullptr, repeat <T, N>);
+				return nullptr;
+			}
 
-template <class ... Args>
-struct execute_grammar_actions <alias <Args...>> {
-	static void exec(lexicon &lptr, Queue &q, int &i) {
-		lexicon l = lptr;
-		if (i >= 0) {
-			vec v = get <vec> (lptr);
-			l = v.at(i++);
+			v.insert(v.begin(), lptr);
 		}
 
-		int ci = 0;
-		execute_grammar_actions <Args...> ::exec(l, q, ci);
-		if (grammar_action <alias <Args...>> ::available) {
-			log_exec(alias <Args...>);
-			grammar_action <alias <Args...>> ::action(l, q);
-		}
-	}
-};
+		lexicon lptr = make(v);
+		log_grammar_end_success(lptr, repeat <T, N>);
 
-// Overload grammar for aliases
-template <class ... Args>
-struct grammar <alias <Args...>> {
-	// Process function
-	static bool _process(vec &v, Queue &q) {
-		log_grammar(alias <Args...>);
+		if (exec)
+			execute <repeat <T, N>> ::exec(dq, lptr);
 
-		vec v2;
-		if (grammar <Args...> ::_process(v2, q)) {
-
-#ifdef NABU_DEBUG_PARSER
-
-			lexicon lptr(new lexvec(
-				v2, 
-				token <vec> ::id,
-				token <vec> ::name
-			));
-
-			log_grammar_end_success(lptr, alias <Args...>);
-
-#else
-
-			lexicon lptr(new lexvec(
-				v2, 
-				token <vec> ::id
-			));
-
-#endif
-
-			v.push_back(lptr);
-			return true;
-		}
-
-#ifdef NABU_DEBUG_PARSER
-
-		lexicon lptr(new lexvec(
-			v2, 
-			token <vec> ::id,
-			token <vec> ::name
-		));
-		
-		log_grammar_end_failure(lptr, alias <Args...>);
-
-#endif
-
-		return false;
-	}
-
-	// Default grammar
-	static lexicon value(Queue &q) {
-		std::vector <lexicon> v;
-		if (_process(v, q)) {
-
-#ifdef NABU_DEBUG_PARSER
-
-			lexicon lptr(new lexvec(
-				v, 
-				token <decltype(v)> ::id,
-				token <decltype(v)> ::name
-			));
-
-#else
-
-			lexicon lptr(new lexvec(
-				v, token <decltype(v)> ::id
-			));
-
-#endif
-
-			int i = 0;
-			execute_grammar_actions <alias <Args...>> ::exec(lptr, q, i);
-			return lptr;
-		}
-
-		return nullptr;
+		return lptr;
 	}
 };
 
