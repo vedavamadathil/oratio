@@ -2706,6 +2706,14 @@ struct _debugger {
 		return ret;
 	}
 
+	static void log_restore(const lexicon &lptr) {
+		printf("%s%s[nabu-rd]%s restoring lexicon => %s\n",
+			indent(false).c_str(),
+			NABU_NOTE_COLOR, NABU_RESET_COLOR,
+			lptr->str().c_str()
+		);
+	}
+
 	template <class ... Args>
 	static void log_exec() {
 		printf("%s%s[nabu-rd]%s executing grammar action for %s%s%s\n",
@@ -2759,6 +2767,7 @@ struct _debugger {
 	}
 };
 
+#define log_restore(lptr) _debugger::log_restore(lptr);
 #define log_exec(...) _debugger::log_exec <__VA_ARGS__> ();
 #define log_grammar(...) _debugger::log_grammar <__VA_ARGS__> ();
 
@@ -2767,6 +2776,7 @@ struct _debugger {
 
 #else
 
+#define log_restore(lptr)
 #define log_exec(...)
 #define log_grammar(...)
 
@@ -2776,10 +2786,10 @@ struct _debugger {
 #endif
 
 // Dual queue system for parsing and restoring on failure
-class DualQueue {
+struct DualQueue {
 	Queue &q;
 	Queue r;
-public:
+
 	DualQueue(Queue &q_) : q(q_) {}
 
 	// No copy constructor
@@ -2802,14 +2812,28 @@ public:
 
 	void restore() {
 		while (r.size() > 0) {
-			q.push_front(r.back());
+			lexicon lptr = r.back();
+			log_restore(lptr);
+			q.push_front(lptr);
 			r.pop_back();
+		}
+	}
+
+	void receive(DualQueue &dq) {
+		assert(&dq.q == &q);
+		while (dq.r.size() > 0) {
+			r.push_back(dq.r.front());
+			dq.r.pop_front();
 		}
 	}
 
 	bool empty() {
 		return q.empty();
 	}
+
+	// Friend
+	template <class ... Args>
+	struct grammar;
 };
 
 // Grammar actions
@@ -2991,15 +3015,18 @@ struct grammar {
 		log_grammar(T, Args...);
 
 		vec v;
-		if (_process <T, Args...> (dq, v)) {
+		DualQueue dq2(dq.q);
+		if (_process <T, Args...> (dq2, v)) {
 			lexicon lptr = make(v);
 			log_grammar_end_success(lptr, T, Args...);
+			dq.receive(dq2);
 			if (exec)
 				execute <T, Args...> ::exec(dq, lptr);
 
 			return lptr;
 		}
 
+		dq2.restore();
 		if (exec)
 			dq.restore();
 
@@ -3026,6 +3053,7 @@ template <class T, class ... Args>
 struct grammar <alias <T, Args...>> {
 	static lexicon value(DualQueue &dq, bool exec = true) {
 		log_grammar(alias <T, Args...>);
+
 		lexicon lptr = grammar <T, Args...> ::value(dq, false);
 		if (lptr) {
 			log_grammar_end_success(lptr, alias <T, Args...>);
@@ -3035,7 +3063,7 @@ struct grammar <alias <T, Args...>> {
 		}
 
 		if (exec)
-		     dq.restore();
+			dq.restore();
 
 		log_grammar_end_failure(nullptr, alias <T, Args...>);
 		return lptr;
@@ -3088,13 +3116,18 @@ struct grammar <repeat <T, N>> {
 
 		vec v;
 		if constexpr (N < 0) {
+			DualQueue dq2(dq.q);
+
 			// Repeat until failure (always succeeds)
 			while (true) {
-				lexicon lptr = grammar <T> ::value(dq, false);
-				if (!lptr)
+				lexicon lptr = grammar <T> ::value(dq2, false);
+				if (!lptr) {
+					dq2.restore();
 					break;
+				}
 
-				v.insert(v.begin(), lptr);
+				dq.receive(dq2);
+				v.push_back(lptr);
 			}
 
 			lexicon lptr = make(v);
@@ -3107,9 +3140,11 @@ struct grammar <repeat <T, N>> {
 		}
 
 		// Repeat N times
+		DualQueue dq2(dq.q);
 		for (int i = 0; i < N; i++) {
-			lexicon lptr = grammar <T> ::value(dq, false);
+			lexicon lptr = grammar <T> ::value(dq2, false);
 			if (!lptr) {
+				dq2.restore();
 				if (exec)
 					dq.restore();
 
@@ -3117,7 +3152,8 @@ struct grammar <repeat <T, N>> {
 				return nullptr;
 			}
 
-			v.insert(v.begin(), lptr);
+			dq.receive(dq2);
+			v.push_back(lptr);
 		}
 
 		lexicon lptr = make(v);
