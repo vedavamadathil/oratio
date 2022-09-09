@@ -2909,7 +2909,9 @@ struct execute {
 			using production_rule = typename T::production_rule;
 			if constexpr (!std::is_same_v <T, production_rule>) {
 				// Expand T
-				return execute <production_rule> ::exec(dq, lptr);
+				execute <production_rule> ::exec(dq, lptr);
+
+				// Also execute T::action()...
 			}
 
 			// Simple single grammar action
