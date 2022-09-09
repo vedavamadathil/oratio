@@ -2785,6 +2785,12 @@ struct _debugger {
 
 #endif
 
+// Easy way to define a terminal
+#define nabu_terminal(T) \
+	struct T { \
+		using production_rule = T; \
+	};
+
 // Dual queue system for parsing and restoring on failure
 struct DualQueue {
 	Queue &q;
@@ -2847,11 +2853,15 @@ struct grammar_action {
 
 // Nested grammar groups
 template <class T, class ... Args>
-struct alias {};
+struct alias {
+	using production_rule = alias <T, Args...>;
+};
 
 // Alternative grammar groups
 template <class T, class ... Args>
 struct option {
+	using production_rule = option <T, Args...>;
+
 	// Map of lexicon to option index
 	static std::map <lexicon, int> &map() {
 		static std::map <lexicon, int> m;
@@ -2861,7 +2871,9 @@ struct option {
 
 // Repetition grammar groups
 template <class T, int N = -1>
-struct repeat {};
+struct repeat {
+	using production_rule = repeat <T, N>;
+};
 
 // TODO: clean up from here...
 template <class T, class ... Args>
@@ -2893,7 +2905,14 @@ template <class T, class ... Args>
 struct execute {
 	static void exec(DualQueue &dq, const lexicon &lptr) {
 		if constexpr (sizeof...(Args) == 0) {
-			// Single grammar action
+			// Check if T is expandable
+			using production_rule = typename T::production_rule;
+			if constexpr (!std::is_same_v <T, production_rule>) {
+				// Expand T
+				return execute <production_rule> ::exec(dq, lptr);
+			}
+
+			// Simple single grammar action
 			log_exec(T);
 			grammar_action <T> ::action(dq, lptr);
 		} else {
@@ -2912,7 +2931,7 @@ template <class T, class ... Args>
 struct execute <alias <T, Args...>> {
 	static void exec(DualQueue &dq, const lexicon &lptr) {
 		if constexpr (sizeof...(Args) == 0) {
-			// Single lexicon, no need to expand
+			// Simple lexicon, no need to expand
 			execute <T> ::exec(dq, lptr);
 
 			// Overall grammar action
@@ -2992,7 +3011,25 @@ struct grammar {
 
 	static lexicon value(DualQueue &dq, bool exec = true) {
 		if constexpr (sizeof...(Args) == 0) {
-			// Single grammar
+			// Check if T is a pure lexicon
+			using production_rule = typename T::production_rule;
+			if constexpr (!std::is_same_v <T, production_rule>) {
+				// Redirect to rule
+				log_grammar(T);
+				lexicon lptr = grammar <production_rule> ::value(dq, false);
+				if (!lptr) {
+					log_grammar_end_failure(lptr, T);
+					return nullptr;
+				}
+
+				log_grammar_end_success(lptr, T);
+				if (exec)
+					execute <T> ::exec(dq, lptr);
+
+				return lptr;
+			}
+
+			// Simple lexicon grammar
 			if (dq.empty())
 				return nullptr;
 
@@ -3035,15 +3072,17 @@ struct grammar {
 	}
 };
 
-// Void grammar as epsilon (no action)
+// Epsilon grammar (no action)
+nabu_terminal(epsilon);
+
 template <>
-struct grammar <void> {
+struct grammar <epsilon> {
 	static lexicon value(DualQueue &dq, bool exec = true) {
 		log_grammar(void);
 		log_grammar_end_success(nullptr, void);
 		lexicon lptr = make(-1);
 		if (exec)
-			execute <void> ::exec(dq, lptr);
+			execute <epsilon> ::exec(dq, lptr);
 		return lptr;
 	}
 };
@@ -3173,6 +3212,13 @@ struct grammar <repeat <T, N>> {
 #ifdef NABU_DEBUG_GENERIC
 
 // Type names for this namespace
+template <>
+struct _type_name <parser::rd::epsilon> {
+	static std::string name() {
+		return "epsilon";
+	}
+};
+
 template <class T, int N>
 struct _type_name <parser::rd::repeat <T, N>> {
 	static std::string name() {
